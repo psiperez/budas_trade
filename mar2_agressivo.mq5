@@ -38,7 +38,7 @@ input double   TrailingATRMultiplier  = 1.5;
 input int      TrailingStepPoints     = 50;     // Passo mínimo para modificar Trailing
 
 input ENUM_TIMEFRAMES Timeframe       = PERIOD_H1;
-input int      ExpirationHours        = 8;
+input int      ExpirationHours        = 4;
 input int      MagicNumber            = 20250223;
 
 //==================== GLOBAL ====================//
@@ -83,7 +83,7 @@ void OnTick()
    if(!UpdateIndicators()) return;
    if(!CheckSpread()) return;
    if(!CheckDrawdown()) return;
-   if(!CheckConsecutiveLosses()) return; // Implementado
+   if(!CheckConsecutiveLosses()) return; 
    if(!VolatilityFilter()) return;
 
    if(CountPositions()>0 || CountOrders()>0) return;
@@ -345,14 +345,13 @@ void ManagePosition()
          }
       }
 
-      // 2. Lógica de Trailing Stop (sobrepõe BE se for melhor)
+      // 2. Lógica de Trailing Stop
       if(UseTrailingATR && CachedATR > 0)
       {
          double trailingSL;
          if(pos.PositionType()==POSITION_TYPE_BUY)
          {
             trailingSL = bid - CachedATR*TrailingATRMultiplier;
-            // Só move se o novo SL for superior ao atual + passo mínimo
             if(trailingSL > targetSL + TrailingStepPoints*_Point)
             {
                targetSL = trailingSL;
@@ -362,7 +361,6 @@ void ManagePosition()
          else
          {
             trailingSL = ask + CachedATR*TrailingATRMultiplier;
-            // Só move se o novo SL for inferior ao atual (ou se não houver SL)
             if(sl == 0 || trailingSL < targetSL - TrailingStepPoints*_Point)
             {
                targetSL = trailingSL;
@@ -373,11 +371,7 @@ void ManagePosition()
       
       if(needsModify)
       {
-         // Consolidado: Uma única chamada de modificação por tick
-         if(!trade.PositionModify(pos.Ticket(), NormalizeDouble(targetSL, _Digits), tp))
-         {
-            // Opcional: Log de erro se necessário
-         }
+         trade.PositionModify(pos.Ticket(), NormalizeDouble(targetSL, _Digits), tp);
       }
    }
 }
