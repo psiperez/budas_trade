@@ -24,8 +24,8 @@ input double   RR_Ratio               = 2.5;
 
 input int      EMA_Period             = 200;
 
-input double   ATR_Minimum_Points     = 80;    
-input double   ATR_Strength_Factor    = 0.5;    // ATR atual >= 50% da média
+input double   ATR_Minimum_Points     = 150;    
+input double   ATR_Strength_Factor    = 0.7;    // ATR atual >= 50% da média
 
 input double   BreakoutBufferPoints   = 50;
 input int      SpreadMaxPoints        = 80;     
@@ -38,7 +38,7 @@ input double   TrailingATRMultiplier  = 1.5;
 input int      TrailingStepPoints     = 50;     // Passo mínimo para modificar Trailing
 
 input ENUM_TIMEFRAMES Timeframe       = PERIOD_H1;
-input int      ExpirationHours        = 8;
+input int      ExpirationHours        = 4;
 input int      MagicNumber            = 20250223;
 
 //==================== GLOBAL ====================//
