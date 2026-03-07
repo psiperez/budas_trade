@@ -1,8 +1,8 @@
 //+------------------------------------------------------------------+
-//| MAR1_AGRESSIVO_PRO - Institutional Version 5.00                 |
+//| MAR1_AGRESSIVO_PRO - Institutional Version 5.10                 |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "5.00"
+#property version   "5.10"
 
 #include <Trade/Trade.mqh>
 
@@ -18,23 +18,24 @@ input int      MaxConsecutiveLoss     = 3;
 
 input int      BarsLookback           = 20;
 input int      ATR_Period             = 14;
-input int      ATR_MA_Period          = 50;     // Média do ATR (novo)
+input int      ATR_MA_Period          = 50;     // Média do ATR
 input double   ATR_Multiplier_SL      = 2.0;
 input double   RR_Ratio               = 2.5;
 
 input int      EMA_Period             = 200;
 
-input double   ATR_Minimum_Points     = 150;    // Reduzido
+input double   ATR_Minimum_Points     = 150;    
 input double   ATR_Strength_Factor    = 0.7;    // ATR atual >= 70% da média
 
 input double   BreakoutBufferPoints   = 50;
-input int      SpreadMaxPoints        = 80;     // Aumentado
+input int      SpreadMaxPoints        = 80;     
 
 input bool     UseBreakEven           = true;
 input double   BreakEvenTriggerATR    = 1.0;
 
 input bool     UseTrailingATR         = true;
 input double   TrailingATRMultiplier  = 1.5;
+input int      TrailingStepPoints     = 50;     // Passo mínimo para modificar Trailing
 
 input ENUM_TIMEFRAMES Timeframe       = PERIOD_H1;
 input int      ExpirationHours        = 4;
@@ -74,18 +75,16 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   if(!IsNewBar())
-   {
-      ManagePosition();
-      return;
-   }
+   // Gestão de posições em cada tick para precisão no trailing
+   ManagePosition();
+
+   if(!IsNewBar()) return;
 
    if(!UpdateIndicators()) return;
    if(!CheckSpread()) return;
    if(!CheckDrawdown()) return;
+   if(!CheckConsecutiveLosses()) return; // Implementado
    if(!VolatilityFilter()) return;
-
-   ManagePosition();
 
    if(CountPositions()>0 || CountOrders()>0) return;
 
@@ -122,11 +121,9 @@ bool VolatilityFilter()
 
    double atrPoints = CachedATR/_Point;
 
-   // Filtro mínimo absoluto
    if(atrPoints < ATR_Minimum_Points)
       return false;
 
-   // ATR médio histórico
    double atrHistory[];
    ArraySetAsSeries(atrHistory,true);
 
@@ -139,11 +136,9 @@ bool VolatilityFilter()
 
    double atrAverage=sum/ATR_MA_Period;
 
-   // ATR atual deve ser >= 70% da média histórica
    if(CachedATR < atrAverage*ATR_Strength_Factor)
       return false;
 
-   // Verificar StopLevel do broker
    int stopLevel=(int)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
    if(atrPoints <= stopLevel)
       return false;
@@ -186,18 +181,48 @@ bool CheckDrawdown()
    return (dd<MaxDrawdownPercent);
 }
 
+bool CheckConsecutiveLosses()
+{
+   if(MaxConsecutiveLoss <= 0) return true;
+   
+   HistorySelect(0, TimeCurrent());
+   int total = HistoryDealsTotal();
+   int count = 0;
+   
+   for(int i = total - 1; i >= 0; i--)
+   {
+      ulong ticket = HistoryDealGetTicket(i);
+      if(HistoryDealGetInteger(ticket, DEAL_MAGIC) != MagicNumber) continue;
+      if(HistoryDealGetString(ticket, DEAL_SYMBOL) != _Symbol) continue;
+      if(HistoryDealGetInteger(ticket, DEAL_ENTRY) != DEAL_ENTRY_OUT) continue;
+      
+      double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT) 
+                    + HistoryDealGetDouble(ticket, DEAL_SWAP) 
+                    + HistoryDealGetDouble(ticket, DEAL_COMMISSION);
+      
+      if(profit < 0) count++;
+      else break; 
+   }
+   
+   return (count < MaxConsecutiveLoss);
+}
+
 double GetHighestHigh()
 {
-   int idx=iHighest(_Symbol,Timeframe,MODE_HIGH,BarsLookback,1);
-   if(idx<0) return -1;
-   return iHigh(_Symbol,Timeframe,idx);
+   double high[];
+   ArraySetAsSeries(high,true);
+   if(CopyHigh(_Symbol,Timeframe,1,BarsLookback,high) < BarsLookback) return -1;
+   int idx=ArrayMaximum(high);
+   return high[idx];
 }
 
 double GetLowestLow()
 {
-   int idx=iLowest(_Symbol,Timeframe,MODE_LOW,BarsLookback,1);
-   if(idx<0) return -1;
-   return iLow(_Symbol,Timeframe,idx);
+   double low[];
+   ArraySetAsSeries(low,true);
+   if(CopyLow(_Symbol,Timeframe,1,BarsLookback,low) < BarsLookback) return -1;
+   int idx=ArrayMinimum(low);
+   return low[idx];
 }
 
 //==================== ORDERS ====================//
@@ -224,7 +249,7 @@ void PlaceBuy(double entry)
    double lot = CalculateLot(entry,sl);
    if(lot<=0) return;
 
-   if(!trade.BuyStop(lot,entry,_Symbol,sl,tp,
+   if(!trade.BuyStop(lot,NormalizeDouble(entry,_Digits),_Symbol,NormalizeDouble(sl,_Digits),NormalizeDouble(tp,_Digits),
       ORDER_TIME_SPECIFIED,
       TimeCurrent()+ExpirationHours*3600,
       "Buy Breakout"))
@@ -242,7 +267,7 @@ void PlaceSell(double entry)
    double lot = CalculateLot(entry,sl);
    if(lot<=0) return;
 
-   if(!trade.SellStop(lot,entry,_Symbol,sl,tp,
+   if(!trade.SellStop(lot,NormalizeDouble(entry,_Digits),_Symbol,NormalizeDouble(sl,_Digits),NormalizeDouble(tp,_Digits),
       ORDER_TIME_SPECIFIED,
       TimeCurrent()+ExpirationHours*3600,
       "Sell Breakout"))
@@ -262,9 +287,9 @@ double CalculateLot(double entry,double sl)
    double tickValue = SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_VALUE);
    double tickSize  = SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE);
 
-   if(tickSize<=0 || tickValue<=0) return 0;
+   if(tickSize<=0 || tickValue<=0 || stopDist<=0) return 0;
 
-   double costPerLot = stopDist/tickSize*tickValue;
+   double costPerLot = (stopDist/tickSize)*tickValue;
    if(costPerLot<=0) return 0;
 
    double lot = riskMoney/costPerLot;
@@ -276,47 +301,82 @@ double CalculateLot(double entry,double sl)
    lot = MathFloor(lot/step)*step;
    lot = MathMax(minLot,MathMin(maxLot,lot));
 
-   return NormalizeDouble(lot,2);
+   return NormalizeDouble(lot, 2);
 }
 
 //==================== POSITION MANAGEMENT ====================//
 
 void ManagePosition()
 {
+   if(CachedATR <= 0) UpdateIndicators();
+
    for(int i=PositionsTotal()-1;i>=0;i--)
    {
       if(!pos.SelectByIndex(i)) continue;
       if(pos.Magic()!=MagicNumber || pos.Symbol()!=_Symbol) continue;
 
-      double price=(pos.PositionType()==POSITION_TYPE_BUY)
-                   ? SymbolInfoDouble(_Symbol,SYMBOL_BID)
-                   : SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+      double bid = SymbolInfoDouble(_Symbol,SYMBOL_BID);
+      double ask = SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+      
+      double price = (pos.PositionType()==POSITION_TYPE_BUY) ? bid : ask;
 
-      double open=pos.PriceOpen();
-      double sl=pos.StopLoss();
-      double tp=pos.TakeProfit();
+      double open = pos.PriceOpen();
+      double sl   = pos.StopLoss();
+      double tp   = pos.TakeProfit();
+      
+      double targetSL = sl;
+      bool needsModify = false;
 
+      // 1. Lógica de Break-even
       if(UseBreakEven)
       {
-         if(MathAbs(price-open)>=CachedATR*BreakEvenTriggerATR)
-            trade.PositionModify(pos.Ticket(),open,tp);
+         if(MathAbs(price-open) >= CachedATR*BreakEvenTriggerATR)
+         {
+            if(pos.PositionType()==POSITION_TYPE_BUY && (sl < open || sl == 0))
+            {
+               targetSL = open;
+               needsModify = true;
+            }
+            if(pos.PositionType()==POSITION_TYPE_SELL && (sl > open || sl == 0))
+            {
+               targetSL = open;
+               needsModify = true;
+            }
+         }
       }
 
-      if(UseTrailingATR)
+      // 2. Lógica de Trailing Stop (sobrepõe BE se for melhor)
+      if(UseTrailingATR && CachedATR > 0)
       {
-         double newSL;
-
+         double trailingSL;
          if(pos.PositionType()==POSITION_TYPE_BUY)
          {
-            newSL=price-CachedATR*TrailingATRMultiplier;
-            if(newSL>sl)
-               trade.PositionModify(pos.Ticket(),newSL,tp);
+            trailingSL = bid - CachedATR*TrailingATRMultiplier;
+            // Só move se o novo SL for superior ao atual + passo mínimo
+            if(trailingSL > targetSL + TrailingStepPoints*_Point)
+            {
+               targetSL = trailingSL;
+               needsModify = true;
+            }
          }
          else
          {
-            newSL=price+CachedATR*TrailingATRMultiplier;
-            if(newSL<sl || sl==0)
-               trade.PositionModify(pos.Ticket(),newSL,tp);
+            trailingSL = ask + CachedATR*TrailingATRMultiplier;
+            // Só move se o novo SL for inferior ao atual (ou se não houver SL)
+            if(sl == 0 || trailingSL < targetSL - TrailingStepPoints*_Point)
+            {
+               targetSL = trailingSL;
+               needsModify = true;
+            }
+         }
+      }
+      
+      if(needsModify)
+      {
+         // Consolidado: Uma única chamada de modificação por tick
+         if(!trade.PositionModify(pos.Ticket(), NormalizeDouble(targetSL, _Digits), tp))
+         {
+            // Opcional: Log de erro se necessário
          }
       }
    }
