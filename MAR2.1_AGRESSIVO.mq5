@@ -13,7 +13,7 @@ COrderInfo     ord;
 //==================== INPUTS ====================//
 
 input double   RiskPercent            = 1.0;
-input double   MaxDrawdownPercent     = 20.0;
+input double   MaxDrawdownPercent     = 40.0;
 input int      MaxConsecutiveLoss     = 3;
 
 input int      BarsLookback           = 20;
