@@ -24,7 +24,7 @@ input double   RR_Ratio               = 2.5;
 
 input int      EMA_Period             = 200;
 
-input double   ATR_Minimum_Points     = 80;    
+input double   ATR_Minimum_Points     = 150;    
 input double   ATR_Strength_Factor    = 0.5;    // ATR atual >= 50% da média
 
 input double   BreakoutBufferPoints   = 50;
