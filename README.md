@@ -14,6 +14,3 @@ O Expert Advisor (EA) **MAR1_AGRESSIVO_PRO** é um robô de rompimento (breakout
 - **Take Profit (TP)**: Baseado em uma relação Risco:Retorno (RR_Ratio), padrão 2.5x o risco.
 - **Break-even**: Move o Stop Loss para o preço de entrada quando o preço atinge um gatilho baseado no ATR.
 - **Trailing Stop**: Utiliza um Trailing ATR para proteger lucros conforme o preço se move a favor.
-
----
-**Conclusão**: O código é bem estruturado e segue boas práticas de MQL5 institucional, mas necessita de ajustes finos na parte de execução (normalização e redução de chamadas redundantes) para ser considerado pronto para produção em conta real.
