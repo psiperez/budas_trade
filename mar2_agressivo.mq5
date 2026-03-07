@@ -38,7 +38,7 @@ input double   TrailingATRMultiplier  = 1.5;
 input int      TrailingStepPoints     = 50;     // Passo mínimo para modificar Trailing
 
 input ENUM_TIMEFRAMES Timeframe       = PERIOD_H1;
-input int      ExpirationHours        = 4;
+input int      ExpirationHours        = 8;
 input int      MagicNumber            = 20250223;
 
 //==================== GLOBAL ====================//
