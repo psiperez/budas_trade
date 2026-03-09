@@ -41,10 +41,6 @@ input ENUM_TIMEFRAMES Timeframe       = PERIOD_H1;
 input int      ExpirationHours        = 4;
 input int      MagicNumber            = 20250223;
 
-input bool     UseVolumeFilter        = true;   // Usar filtro de volume (Tick Volume)
-input int      Volume_MA_Period       = 20;     // Média do volume
-input double   Volume_Multiplier      = 1.1;    // Volume atual deve ser > Média * Multiplier
-
 //==================== GLOBAL ====================//
 
 double PeakEquity = 0.0;
@@ -87,7 +83,6 @@ void OnTick()
    if(!UpdateIndicators()) return;
    if(!CheckSpread()) return;
    if(!CheckDrawdown()) return;
-   if(!CheckVolume()) return;
    if(!CheckConsecutiveLosses()) return; 
    if(!VolatilityFilter()) return;
 
@@ -184,27 +179,6 @@ bool CheckDrawdown()
    double dd=(PeakEquity-equity)/PeakEquity*100.0;
 
    return (dd<MaxDrawdownPercent);
-}
-
-bool CheckVolume()
-{
-   if(!UseVolumeFilter) return true;
-
-   long volume[];
-   ArraySetAsSeries(volume, true);
-
-   if(CopyTickVolume(_Symbol, Timeframe, 0, Volume_MA_Period + 1, volume) < Volume_MA_Period + 1)
-      return false;
-
-   double currentVolume = (double)volume[0];
-   double sum = 0;
-
-   for(int i = 1; i <= Volume_MA_Period; i++)
-      sum += (double)volume[i];
-
-   double avgVolume = sum / Volume_MA_Period;
-
-   return (currentVolume > avgVolume * Volume_Multiplier);
 }
 
 bool CheckConsecutiveLosses()
