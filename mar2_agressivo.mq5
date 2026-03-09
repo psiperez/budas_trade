@@ -18,7 +18,6 @@ input int      MaxConsecutiveLoss     = 3;
 
 input int      BarsLookback           = 20;
 input int      ATR_Period             = 14;
-input int      ATR_MA_Period          = 50;
 input double   ATR_Multiplier_SL      = 2.0;
 input double   RR_Ratio               = 2.5;
 
