@@ -37,6 +37,21 @@ input bool     UseTrailingATR         = true;
 input double   TrailingATRMultiplier  = 1.5;
 input int      TrailingStepPoints     = 50;     // Passo mínimo para modificar Trailing
 
+input bool     UseDynamicTrailing     = true;   // Trailing pelas máximas/mínimas anteriores
+input int      TrailingLookback       = 2;      // Quantas barras atrás para o Stop
+
+input bool     UseVolumeFilter        = true;   // Filtro de Volume Real/Tick
+input double   VolumeRatio            = 1.2;    // Volume atual deve ser 20% maior que a média
+
+input bool     UseRSIExhaustion       = true;   // Filtro de Exaustão RSI
+input int      RSI_Period             = 14;
+input double   RSI_Overbought         = 65.0;
+input double   RSI_Oversold           = 35.0;
+
+input bool     UsePartialClose        = true;   // Realização Parcial
+input double   PartialClosePercent    = 50.0;   // % do lote a fechar
+input double   PartialCloseRR         = 1.0;    // Fechar ao atingir 1:1
+
 input ENUM_TIMEFRAMES Timeframe       = PERIOD_H1;
 input int      ExpirationHours        = 4;
 input int      MagicNumber            = 20250223;
@@ -48,10 +63,12 @@ double PeakEquity = 0.0;
 int ATR_Handle      = INVALID_HANDLE;
 int ATR_M15_Handle  = INVALID_HANDLE;
 int EMA_Handle      = INVALID_HANDLE;
+int RSI_Handle      = INVALID_HANDLE;
 
 double CachedATR     = 0.0;
 double CachedATR_M15 = 0.0;
 double CachedEMA     = 0.0;
+double CachedRSI     = 0.0;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -68,6 +85,9 @@ int OnInit()
    EMA_Handle = iMA(_Symbol, Timeframe, EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
    if(EMA_Handle == INVALID_HANDLE) return(INIT_FAILED);
 
+   RSI_Handle = iRSI(_Symbol, Timeframe, RSI_Period, PRICE_CLOSE);
+   if(RSI_Handle == INVALID_HANDLE) return(INIT_FAILED);
+
    PeakEquity = AccountInfoDouble(ACCOUNT_EQUITY);
 
    return(INIT_SUCCEEDED);
@@ -78,6 +98,7 @@ void OnDeinit(const int reason)
    if(ATR_Handle != INVALID_HANDLE) IndicatorRelease(ATR_Handle);
    if(ATR_M15_Handle != INVALID_HANDLE) IndicatorRelease(ATR_M15_Handle);
    if(EMA_Handle != INVALID_HANDLE) IndicatorRelease(EMA_Handle);
+   if(RSI_Handle != INVALID_HANDLE) IndicatorRelease(RSI_Handle);
 }
 //+------------------------------------------------------------------+
 void OnTick()
@@ -108,18 +129,22 @@ bool UpdateIndicators()
    double atr[];
    double atr_m15[];
    double ema[];
+   double rsi[];
 
    ArraySetAsSeries(atr,true);
    ArraySetAsSeries(atr_m15,true);
    ArraySetAsSeries(ema,true);
+   ArraySetAsSeries(rsi,true);
 
    if(CopyBuffer(ATR_Handle,0,1,1,atr)<=0) return false;
    if(CopyBuffer(ATR_M15_Handle,0,1,1,atr_m15)<=0) return false;
    if(CopyBuffer(EMA_Handle,0,1,1,ema)<=0) return false;
+   if(CopyBuffer(RSI_Handle,0,1,1,rsi)<=0) return false;
 
    CachedATR     = atr[0];
    CachedATR_M15 = atr_m15[0];
    CachedEMA     = ema[0];
+   CachedRSI     = rsi[0];
 
    return true;
 }
@@ -194,6 +219,36 @@ bool CheckDrawdown()
    return (dd<MaxDrawdownPercent);
 }
 
+bool CheckVolumeConfirmation()
+{
+   if(!UseVolumeFilter) return true;
+
+   long volume[];
+   ArraySetAsSeries(volume, true);
+
+   // Compara o volume da barra anterior (fechada) com a média
+   if(CopyTickVolume(_Symbol, Timeframe, 1, 20, volume) < 20) return true;
+
+   double sum = 0;
+   for(int i = 1; i < 20; i++) sum += (double)volume[i];
+   double avg = sum / 19.0;
+
+   return ((double)volume[0] > avg * VolumeRatio);
+}
+
+bool CheckExhaustion(int type)
+{
+   if(!UseRSIExhaustion) return true;
+
+   if(type == POSITION_TYPE_BUY)
+      return (CachedRSI < RSI_Overbought); // Não compra se estiver sobrecomprado
+
+   if(type == POSITION_TYPE_SELL)
+      return (CachedRSI > RSI_Oversold); // Não vende se estiver sobrevendido
+
+   return true;
+}
+
 bool CheckConsecutiveLosses()
 {
    if(MaxConsecutiveLoss <= 0) return true;
@@ -242,15 +297,17 @@ double GetLowestLow()
 
 void PlaceOrders(double high,double low)
 {
+   if(!CheckVolumeConfirmation()) return;
+
    double buyEntry  = high + BreakoutBufferPoints*_Point;
    double sellEntry = low  - BreakoutBufferPoints*_Point;
 
    double bid = SymbolInfoDouble(_Symbol,SYMBOL_BID);
 
-   if(bid > CachedEMA)
+   if(bid > CachedEMA && CheckExhaustion(POSITION_TYPE_BUY))
       PlaceBuy(buyEntry);
 
-   if(bid < CachedEMA)
+   if(bid < CachedEMA && CheckExhaustion(POSITION_TYPE_SELL))
       PlaceSell(sellEntry);
 }
 
@@ -382,6 +439,55 @@ void ManagePosition()
          }
       }
       
+      // 3. Realização Parcial
+      if(UsePartialClose)
+      {
+         double profitPoints = (pos.PositionType() == POSITION_TYPE_BUY) ? (bid - open) : (open - ask);
+         double riskPoints = MathAbs(open - sl);
+
+         // Se atingiu o RR e ainda não foi feita a parcial (comentário de controle ou volume)
+         if(profitPoints >= riskPoints * PartialCloseRR && pos.Volume() > SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN))
+         {
+            double closeLot = NormalizeDouble(pos.Volume() * PartialClosePercent / 100.0, 2);
+            double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+            closeLot = MathFloor(closeLot / step) * step;
+
+            if(closeLot >= SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN))
+            {
+               trade.PositionClosePartial(pos.Ticket(), closeLot);
+               // Após parcial, move obrigatoriamente para o zero a zero
+               targetSL = open;
+               needsModify = true;
+            }
+         }
+      }
+
+      // 4. Trailing Dinâmico (Máximas/Mínimas)
+      if(UseDynamicTrailing)
+      {
+         double dynSL;
+         if(pos.PositionType() == POSITION_TYPE_BUY)
+         {
+            int idx = iLowest(_Symbol, Timeframe, MODE_LOW, TrailingLookback, 1);
+            dynSL = iLow(_Symbol, Timeframe, idx);
+            if(dynSL > targetSL + TrailingStepPoints * _Point)
+            {
+               targetSL = dynSL;
+               needsModify = true;
+            }
+         }
+         else
+         {
+            int idx = iHighest(_Symbol, Timeframe, MODE_HIGH, TrailingLookback, 1);
+            dynSL = iHigh(_Symbol, Timeframe, idx);
+            if(targetSL == 0 || dynSL < targetSL - TrailingStepPoints * _Point)
+            {
+               targetSL = dynSL;
+               needsModify = true;
+            }
+         }
+      }
+
       if(needsModify)
       {
          trade.PositionModify(pos.Ticket(), NormalizeDouble(targetSL, _Digits), tp);
