@@ -62,10 +62,11 @@ int OnInit()
    ATR_Handle = iATR(_Symbol, Timeframe, ATR_Period);
    if(ATR_Handle == INVALID_HANDLE) return(INIT_FAILED);
 
-   EMA_Fast_Handle = iMA(_Symbol, Timeframe, EMA_Fast_Period, 0, MODE_EMA, PRICE_CLOSE);
+   // Médias de 9 e 21 períodos obtidas do timeframe de 15 minutos (M15)
+   EMA_Fast_Handle = iMA(_Symbol, PERIOD_M15, EMA_Fast_Period, 0, MODE_EMA, PRICE_CLOSE);
    if(EMA_Fast_Handle == INVALID_HANDLE) return(INIT_FAILED);
 
-   EMA_Slow_Handle = iMA(_Symbol, Timeframe, EMA_Slow_Period, 0, MODE_EMA, PRICE_CLOSE);
+   EMA_Slow_Handle = iMA(_Symbol, PERIOD_M15, EMA_Slow_Period, 0, MODE_EMA, PRICE_CLOSE);
    if(EMA_Slow_Handle == INVALID_HANDLE) return(INIT_FAILED);
 
    PeakEquity = AccountInfoDouble(ACCOUNT_EQUITY);
