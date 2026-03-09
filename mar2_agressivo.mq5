@@ -2,7 +2,7 @@
 //| MAR1_AGRESSIVO_PRO - Institutional Version 5.10                 |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "5.20"
+#property version   "5.10"
 
 #include <Trade/Trade.mqh>
 
@@ -18,14 +18,14 @@ input int      MaxConsecutiveLoss     = 3;
 
 input int      BarsLookback           = 20;
 input int      ATR_Period             = 14;
+input int      ATR_MA_Period          = 50;     // Média do ATR
 input double   ATR_Multiplier_SL      = 2.0;
 input double   RR_Ratio               = 2.5;
 
-input int      EMA_Fast_Period        = 9;      // EMA Curta
-input int      EMA_Slow_Period        = 21;     // EMA Longa
+input int      EMA_Period             = 200;
 
-input int      Volume_MA_Period       = 20;     // Média do Volume
-input double   Volume_Multiplier      = 1.1;    // Multiplicador de confirmação
+input double   ATR_Minimum_Points     = 150;
+input double   ATR_Strength_Factor    = 0.7;    // ATR atual >= 50% da média
 
 input double   BreakoutBufferPoints   = 50;
 input int      SpreadMaxPoints        = 80;     
@@ -46,12 +46,12 @@ input int      MagicNumber            = 20250223;
 double PeakEquity = 0.0;
 
 int ATR_Handle      = INVALID_HANDLE;
-int EMA_Fast_Handle = INVALID_HANDLE;
-int EMA_Slow_Handle = INVALID_HANDLE;
+int ATR_M15_Handle  = INVALID_HANDLE;
+int EMA_Handle      = INVALID_HANDLE;
 
-double CachedATR      = 0.0;
-double CachedEMA_Fast = 0.0;
-double CachedEMA_Slow = 0.0;
+double CachedATR     = 0.0;
+double CachedATR_M15 = 0.0;
+double CachedEMA     = 0.0;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -61,12 +61,12 @@ int OnInit()
    ATR_Handle = iATR(_Symbol, Timeframe, ATR_Period);
    if(ATR_Handle == INVALID_HANDLE) return(INIT_FAILED);
 
-   // Médias de 9 e 21 períodos obtidas do timeframe de 15 minutos (M15)
-   EMA_Fast_Handle = iMA(_Symbol, PERIOD_M15, EMA_Fast_Period, 0, MODE_EMA, PRICE_CLOSE);
-   if(EMA_Fast_Handle == INVALID_HANDLE) return(INIT_FAILED);
+   // ATR de 15 minutos para filtro de volatilidade
+   ATR_M15_Handle = iATR(_Symbol, PERIOD_M15, ATR_Period);
+   if(ATR_M15_Handle == INVALID_HANDLE) return(INIT_FAILED);
 
-   EMA_Slow_Handle = iMA(_Symbol, PERIOD_M15, EMA_Slow_Period, 0, MODE_EMA, PRICE_CLOSE);
-   if(EMA_Slow_Handle == INVALID_HANDLE) return(INIT_FAILED);
+   EMA_Handle = iMA(_Symbol, Timeframe, EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
+   if(EMA_Handle == INVALID_HANDLE) return(INIT_FAILED);
 
    PeakEquity = AccountInfoDouble(ACCOUNT_EQUITY);
 
@@ -76,8 +76,8 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    if(ATR_Handle != INVALID_HANDLE) IndicatorRelease(ATR_Handle);
-   if(EMA_Fast_Handle != INVALID_HANDLE) IndicatorRelease(EMA_Fast_Handle);
-   if(EMA_Slow_Handle != INVALID_HANDLE) IndicatorRelease(EMA_Slow_Handle);
+   if(ATR_M15_Handle != INVALID_HANDLE) IndicatorRelease(ATR_M15_Handle);
+   if(EMA_Handle != INVALID_HANDLE) IndicatorRelease(EMA_Handle);
 }
 //+------------------------------------------------------------------+
 void OnTick()
@@ -106,44 +106,57 @@ void OnTick()
 bool UpdateIndicators()
 {
    double atr[];
-   double ema_fast[];
-   double ema_slow[];
+   double atr_m15[];
+   double ema[];
 
    ArraySetAsSeries(atr,true);
-   ArraySetAsSeries(ema_fast,true);
-   ArraySetAsSeries(ema_slow,true);
+   ArraySetAsSeries(atr_m15,true);
+   ArraySetAsSeries(ema,true);
 
    if(CopyBuffer(ATR_Handle,0,1,1,atr)<=0) return false;
-   if(CopyBuffer(EMA_Fast_Handle,0,1,1,ema_fast)<=0) return false;
-   if(CopyBuffer(EMA_Slow_Handle,0,1,1,ema_slow)<=0) return false;
+   if(CopyBuffer(ATR_M15_Handle,0,1,1,atr_m15)<=0) return false;
+   if(CopyBuffer(EMA_Handle,0,1,1,ema)<=0) return false;
 
-   CachedATR      = atr[0];
-   CachedEMA_Fast = ema_fast[0];
-   CachedEMA_Slow = ema_slow[0];
+   CachedATR     = atr[0];
+   CachedATR_M15 = atr_m15[0];
+   CachedEMA     = ema[0];
 
    return true;
 }
 
-//==================== VOLATILITY FILTER (VOLUME) ====================//
+//==================== VOLATILITY FILTER PRO ====================//
 
 bool VolatilityFilter()
 {
-   long volume[];
-   ArraySetAsSeries(volume, true);
+   if(CachedATR_M15<=0) return false;
 
-   if(CopyTickVolume(_Symbol, Timeframe, 0, Volume_MA_Period + 1, volume) < Volume_MA_Period + 1)
+   // Verificações baseadas no timeframe de 15 minutos (M15)
+   double atrPoints = CachedATR_M15/_Point;
+
+   if(atrPoints < ATR_Minimum_Points)
       return false;
 
-   double currentVolume = (double)volume[0];
-   double sum = 0;
+   double atrHistory[];
+   ArraySetAsSeries(atrHistory,true);
 
-   for(int i = 1; i <= Volume_MA_Period; i++)
-      sum += (double)volume[i];
+   // Histórico também obtido do handle de 15 minutos
+   if(CopyBuffer(ATR_M15_Handle,0,1,ATR_MA_Period,atrHistory)<=0)
+      return false;
 
-   double avgVolume = sum / Volume_MA_Period;
+   double sum=0;
+   for(int i=0;i<ATR_MA_Period;i++)
+      sum+=atrHistory[i];
 
-   // O volume atual deve ser maior que a média ponderada pelo multiplicador
-   return (currentVolume > avgVolume * Volume_Multiplier);
+   double atrAverage=sum/ATR_MA_Period;
+
+   if(CachedATR_M15 < atrAverage*ATR_Strength_Factor)
+      return false;
+
+   int stopLevel=(int)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
+   if(atrPoints <= stopLevel)
+      return false;
+
+   return true;
 }
 
 //==================== CORE ====================//
@@ -232,11 +245,12 @@ void PlaceOrders(double high,double low)
    double buyEntry  = high + BreakoutBufferPoints*_Point;
    double sellEntry = low  - BreakoutBufferPoints*_Point;
 
-   // Filtro de Tendência: Cruzamento/Alinhamento de EMAs (9 e 21)
-   if(CachedEMA_Fast > CachedEMA_Slow)
+   double bid = SymbolInfoDouble(_Symbol,SYMBOL_BID);
+
+   if(bid > CachedEMA)
       PlaceBuy(buyEntry);
 
-   if(CachedEMA_Fast < CachedEMA_Slow)
+   if(bid < CachedEMA)
       PlaceSell(sellEntry);
 }
 
