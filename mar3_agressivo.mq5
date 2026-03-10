@@ -1,8 +1,8 @@
 //+------------------------------------------------------------------+
-//| MAR1_AGRESSIVO_PRO - Institutional Version 5.10                 |
+//| MAR1_AGRESSIVO_PRO - Institutional Version 5.35 (Management)    |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "5.10"
+#property version   "5.35"
 
 #include <Trade/Trade.mqh>
 
@@ -18,17 +18,17 @@ input int      MaxConsecutiveLoss     = 3;
 
 input int      BarsLookback           = 20;
 input int      ATR_Period             = 14;
-input int      ATR_MA_Period          = 50;     // Média do ATR
+input int      ATR_MA_Period          = 50;     // Média do ATR (usado no filtro M15)
 input double   ATR_Multiplier_SL      = 2.0;
 input double   RR_Ratio               = 2.5;
 
 input int      EMA_Period             = 200;
 
 input double   ATR_Minimum_Points     = 150;
-input double   ATR_Strength_Factor    = 0.7;    // ATR atual >= 50% da média
+input double   ATR_Strength_Factor    = 0.7;    // ATR atual >= 70% da média (M15)
 
 input double   BreakoutBufferPoints   = 50;
-input int      SpreadMaxPoints        = 80;     
+input int      SpreadMaxPoints        = 80;
 
 input bool     UseBreakEven           = true;
 input double   BreakEvenTriggerATR    = 1.0;
@@ -42,7 +42,7 @@ input int      TrailingLookback       = 2;      // Quantas barras atrás para o 
 
 input bool     UsePartialClose        = true;   // Realização Parcial
 input double   PartialClosePercent    = 50.0;   // % do lote a fechar
-input double   PartialCloseRR         = 1.0;    // Fechar ao atingir 1:1
+input double   PartialCloseRR         = 1.0;    // Fechar ao atingir 1:1 do risco ATR
 
 input ENUM_TIMEFRAMES Timeframe       = PERIOD_H1;
 input int      ExpirationHours        = 4;
@@ -89,7 +89,7 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   // Gestão de posições em cada tick para precisão no trailing
+   // Gestão de posições em cada tick
    ManagePosition();
 
    if(!IsNewBar()) return;
@@ -97,7 +97,7 @@ void OnTick()
    if(!UpdateIndicators()) return;
    if(!CheckSpread()) return;
    if(!CheckDrawdown()) return;
-   if(!CheckConsecutiveLosses()) return; 
+   if(!CheckConsecutiveLosses()) return;
    if(!VolatilityFilter()) return;
 
    if(CountPositions()>0 || CountOrders()>0) return;
@@ -137,7 +137,6 @@ bool VolatilityFilter()
 {
    if(CachedATR_M15<=0) return false;
 
-   // Verificações baseadas no timeframe de 15 minutos (M15)
    double atrPoints = CachedATR_M15/_Point;
 
    if(atrPoints < ATR_Minimum_Points)
@@ -146,7 +145,6 @@ bool VolatilityFilter()
    double atrHistory[];
    ArraySetAsSeries(atrHistory,true);
 
-   // Histórico também obtido do handle de 15 minutos
    if(CopyBuffer(ATR_M15_Handle,0,1,ATR_MA_Period,atrHistory)<=0)
       return false;
 
@@ -205,26 +203,26 @@ bool CheckDrawdown()
 bool CheckConsecutiveLosses()
 {
    if(MaxConsecutiveLoss <= 0) return true;
-   
+
    HistorySelect(0, TimeCurrent());
    int total = HistoryDealsTotal();
    int count = 0;
-   
+
    for(int i = total - 1; i >= 0; i--)
    {
       ulong ticket = HistoryDealGetTicket(i);
       if(HistoryDealGetInteger(ticket, DEAL_MAGIC) != MagicNumber) continue;
       if(HistoryDealGetString(ticket, DEAL_SYMBOL) != _Symbol) continue;
       if(HistoryDealGetInteger(ticket, DEAL_ENTRY) != DEAL_ENTRY_OUT) continue;
-      
-      double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT) 
-                    + HistoryDealGetDouble(ticket, DEAL_SWAP) 
+
+      double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT)
+                    + HistoryDealGetDouble(ticket, DEAL_SWAP)
                     + HistoryDealGetDouble(ticket, DEAL_COMMISSION);
-      
+
       if(profit < 0) count++;
-      else break; 
+      else break;
    }
-   
+
    return (count < MaxConsecutiveLoss);
 }
 
@@ -338,13 +336,13 @@ void ManagePosition()
 
       double bid = SymbolInfoDouble(_Symbol,SYMBOL_BID);
       double ask = SymbolInfoDouble(_Symbol,SYMBOL_ASK);
-      
+
       double price = (pos.PositionType()==POSITION_TYPE_BUY) ? bid : ask;
 
       double open = pos.PriceOpen();
       double sl   = pos.StopLoss();
       double tp   = pos.TakeProfit();
-      
+
       double targetSL = sl;
       bool needsModify = false;
 
@@ -389,17 +387,15 @@ void ManagePosition()
             }
          }
       }
-      
-      // 3. Realização Parcial
+
+      // 3. Realização Parcial (Corrigido para evitar loop)
       if(UsePartialClose)
       {
          bool isBuy = (pos.PositionType() == POSITION_TYPE_BUY);
          double profitPoints = isBuy ? (bid - open) : (open - ask);
-
-         // Cálculo do risco base para o gatilho da parcial (usa o ATR se o SL original já sumiu)
          double initialRisk = CachedATR * ATR_Multiplier_SL;
 
-         // Gatilho: Preço atingiu RR alvo E o Stop Loss ainda não está no Break-even
+         // Gatilho: Atingiu RR e o Stop Loss ainda não está no Break-even
          bool triggerPartial = (profitPoints >= initialRisk * PartialCloseRR);
          bool alreadyProtected = isBuy ? (sl >= open - 0.00001) : (sl <= open + 0.00001 && sl > 0);
 
@@ -413,7 +409,7 @@ void ManagePosition()
             {
                if(trade.PositionClosePartial(pos.Ticket(), closeLot))
                {
-                  targetSL = open; // Move para o zero a zero após parcial
+                  targetSL = open; // Trava lucro no Break-even após parcial
                   needsModify = true;
                }
             }
