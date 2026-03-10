@@ -40,9 +40,6 @@ input int      TrailingStepPoints     = 50;     // Passo mínimo para modificar 
 input bool     UseDynamicTrailing     = true;   // Trailing pelas máximas/mínimas anteriores
 input int      TrailingLookback       = 2;      // Quantas barras atrás para o Stop
 
-input bool     UseVolumeFilter        = true;   // Filtro de Volume Real/Tick
-input double   VolumeRatio            = 1.2;    // Volume atual deve ser 20% maior que a média
-
 input bool     UseRSIExhaustion       = true;   // Filtro de Exaustão RSI
 input int      RSI_Period             = 14;
 input double   RSI_Overbought         = 65.0;
@@ -219,23 +216,6 @@ bool CheckDrawdown()
    return (dd<MaxDrawdownPercent);
 }
 
-bool CheckVolumeConfirmation()
-{
-   if(!UseVolumeFilter) return true;
-
-   long volume[];
-   ArraySetAsSeries(volume, true);
-
-   // Compara o volume da barra anterior (fechada) com a média
-   if(CopyTickVolume(_Symbol, Timeframe, 1, 20, volume) < 20) return true;
-
-   double sum = 0;
-   for(int i = 1; i < 20; i++) sum += (double)volume[i];
-   double avg = sum / 19.0;
-
-   return ((double)volume[0] > avg * VolumeRatio);
-}
-
 bool CheckExhaustion(int type)
 {
    if(!UseRSIExhaustion) return true;
@@ -297,8 +277,6 @@ double GetLowestLow()
 
 void PlaceOrders(double high,double low)
 {
-   if(!CheckVolumeConfirmation()) return;
-
    double buyEntry  = high + BreakoutBufferPoints*_Point;
    double sellEntry = low  - BreakoutBufferPoints*_Point;
 
