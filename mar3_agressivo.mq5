@@ -13,8 +13,8 @@ COrderInfo     ord;
 //==================== INPUTS ====================//
 
 input double   RiskPercent            = 1.0;
-input double   MaxDrawdownPercent     = 20.0;
-input int      MaxConsecutiveLoss     = 3;
+input double   MaxDrawdownPercent     = 30.0;
+input int      MaxConsecutiveLoss     = 5;
 
 input int      BarsLookback           = 20;
 input int      ATR_Period             = 14;
@@ -24,8 +24,8 @@ input double   RR_Ratio               = 2.5;
 
 input int      EMA_Period             = 200;
 
-input double   ATR_Minimum_Points     = 150;
-input double   ATR_Strength_Factor    = 0.7;    // ATR atual >= 70% da média (M15)
+input double   ATR_Minimum_Points     = 80;
+input double   ATR_Strength_Factor    = 0.5;    // ATR atual >= 70% da média (M15)
 
 input double   BreakoutBufferPoints   = 50;
 input int      SpreadMaxPoints        = 80;
@@ -45,7 +45,7 @@ input double   PartialClosePercent    = 50.0;   // % do lote a fechar
 input double   PartialCloseRR         = 1.0;    // Fechar ao atingir 1:1 do risco ATR
 
 input ENUM_TIMEFRAMES Timeframe       = PERIOD_H1;
-input int      ExpirationHours        = 4;
+input int      ExpirationHours        = 8;
 input int      MagicNumber            = 20250223;
 
 //==================== GLOBAL ====================//
