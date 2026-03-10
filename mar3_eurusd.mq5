@@ -1,8 +1,8 @@
 //+------------------------------------------------------------------+
-//| MAR1_AGRESSIVO_PRO - Institutional Version 5.35 (Management)    |
+//| MAR3_EURUSD - Contra-Tendência Version 5.40 (EURUSD)            |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "5.35"
+#property version   "5.40"
 
 #include <Trade/Trade.mqh>
 
@@ -12,9 +12,9 @@ COrderInfo     ord;
 
 //==================== INPUTS ====================//
 
-input double   RiskPercent            = 1.0;
-input double   MaxDrawdownPercent     = 20.0;
-input int      MaxConsecutiveLoss     = 3;
+input double   RiskPercent            = 1.5;    // Risco ligeiramente aumentado para EURUSD
+input double   MaxDrawdownPercent     = 15.0;   // Mais conservador no Drawdown
+input int      MaxConsecutiveLoss     = 4;
 
 input int      BarsLookback           = 20;
 input int      ATR_Period             = 14;
@@ -27,8 +27,8 @@ input int      EMA_Period             = 200;
 input double   ATR_Minimum_Points     = 150;
 input double   ATR_Strength_Factor    = 0.7;    // ATR atual >= 70% da média (M15)
 
-input double   BreakoutBufferPoints   = 50;
-input int      SpreadMaxPoints        = 80;
+input double   BreakoutBufferPoints   = 30;     // Reduzido para maior sensibilidade no EURUSD
+input int      SpreadMaxPoints        = 25;     // Mais restrito para EURUSD
 
 input bool     UseBreakEven           = true;
 input double   BreakEvenTriggerATR    = 1.0;
@@ -44,8 +44,8 @@ input bool     UsePartialClose        = true;   // Realização Parcial
 input double   PartialClosePercent    = 50.0;   // % do lote a fechar
 input double   PartialCloseRR         = 1.0;    // Fechar ao atingir 1:1 do risco ATR
 
-input ENUM_TIMEFRAMES Timeframe       = PERIOD_H1;
-input int      ExpirationHours        = 4;
+input ENUM_TIMEFRAMES Timeframe       = PERIOD_M15; // Otimizado para M15 no EURUSD
+input int      ExpirationHours        = 2;          // Expiração mais curta para scalping/reversão
 input int      MagicNumber            = 20250223;
 
 //==================== GLOBAL ====================//
@@ -242,10 +242,11 @@ void PlaceOrders(double high,double low)
 
    double bid = SymbolInfoDouble(_Symbol,SYMBOL_BID);
 
-   if(bid > CachedEMA)
+   // Lógica de Contra-Tendência (Entradas contrárias à EMA)
+   if(bid < CachedEMA)
       PlaceBuy(buyEntry);
 
-   if(bid < CachedEMA)
+   if(bid > CachedEMA)
       PlaceSell(sellEntry);
 }
 
@@ -346,7 +347,7 @@ void ManagePosition()
          }
       }
 
-      // 2. Realização Parcial (Executada antes do trailing para travar o BE)
+      // 2. Lógica de Realização Parcial (Executada antes do trailing para travar o BE)
       if(UsePartialClose)
       {
          double profitPoints = isBuy ? (bid - open) : (open - ask);
