@@ -309,7 +309,9 @@ double CalculateLot(double entry,double sl)
    lot = MathFloor(lot/step)*step;
    lot = MathMax(minLot,MathMin(maxLot,lot));
 
-   return NormalizeDouble(lot, 2);
+   int digits = (int)-MathLog10(step);
+   if(digits < 0) digits = 0;
+   return NormalizeDouble(lot, digits);
 }
 
 //==================== POSITION MANAGEMENT ====================//
@@ -353,15 +355,34 @@ void ManagePosition()
          double initialRisk = CachedATR * ATR_Multiplier_SL;
 
          bool triggerPartial = (profitPoints >= initialRisk * PartialCloseRR);
-         bool alreadyProtected = isBuy ? (targetSL >= open - 0.00001) : (targetSL <= open + 0.00001 && targetSL > 0);
+
+         double initialVol = 0;
+         if(HistorySelectByPosition(pos.Ticket()))
+         {
+            int deals = HistoryDealsTotal();
+            for(int d=0; d<deals; d++)
+            {
+               ulong d_ticket = HistoryDealGetTicket(d);
+               if(HistoryDealGetInteger(d_ticket, DEAL_ENTRY) == DEAL_ENTRY_IN)
+               {
+                  initialVol = HistoryDealGetDouble(d_ticket, DEAL_VOLUME);
+                  break;
+               }
+            }
+         }
+
+         bool alreadyProtected = (pos.Volume() < initialVol - 0.00001);
 
          if(triggerPartial && !alreadyProtected && pos.Volume() > SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN))
          {
-            double closeLot = NormalizeDouble(pos.Volume() * PartialClosePercent / 100.0, 2);
             double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+            int volDigits = (int)-MathLog10(step);
+            if(volDigits<0) volDigits=0;
+
+            double closeLot = NormalizeDouble(pos.Volume() * PartialClosePercent / 100.0, volDigits);
             closeLot = MathFloor(closeLot / step) * step;
 
-            if(closeLot >= SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN))
+            if(closeLot >= SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN) && (pos.Volume() - closeLot) >= SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN))
             {
                if(trade.PositionClosePartial(pos.Ticket(), closeLot))
                {
