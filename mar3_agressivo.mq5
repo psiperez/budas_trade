@@ -53,11 +53,9 @@ input int      MagicNumber            = 20250223;
 double PeakEquity = 0.0;
 
 int ATR_Handle      = INVALID_HANDLE;
-int ATR_M15_Handle  = INVALID_HANDLE;
 int EMA_Handle      = INVALID_HANDLE;
 
 double CachedATR     = 0.0;
-double CachedATR_M15 = 0.0;
 double CachedEMA     = 0.0;
 
 //+------------------------------------------------------------------+
@@ -67,10 +65,6 @@ int OnInit()
 
    ATR_Handle = iATR(_Symbol, Timeframe, ATR_Period);
    if(ATR_Handle == INVALID_HANDLE) return(INIT_FAILED);
-
-   // ATR de 15 minutos para filtro de volatilidade
-   ATR_M15_Handle = iATR(_Symbol, PERIOD_M15, ATR_Period);
-   if(ATR_M15_Handle == INVALID_HANDLE) return(INIT_FAILED);
 
    EMA_Handle = iMA(_Symbol, Timeframe, EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
    if(EMA_Handle == INVALID_HANDLE) return(INIT_FAILED);
@@ -83,7 +77,6 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    if(ATR_Handle != INVALID_HANDLE) IndicatorRelease(ATR_Handle);
-   if(ATR_M15_Handle != INVALID_HANDLE) IndicatorRelease(ATR_M15_Handle);
    if(EMA_Handle != INVALID_HANDLE) IndicatorRelease(EMA_Handle);
 }
 //+------------------------------------------------------------------+
@@ -113,19 +106,15 @@ void OnTick()
 bool UpdateIndicators()
 {
    double atr[];
-   double atr_m15[];
    double ema[];
 
    ArraySetAsSeries(atr,true);
-   ArraySetAsSeries(atr_m15,true);
    ArraySetAsSeries(ema,true);
 
    if(CopyBuffer(ATR_Handle,0,1,1,atr)<=0) return false;
-   if(CopyBuffer(ATR_M15_Handle,0,1,1,atr_m15)<=0) return false;
    if(CopyBuffer(EMA_Handle,0,1,1,ema)<=0) return false;
 
    CachedATR     = atr[0];
-   CachedATR_M15 = atr_m15[0];
    CachedEMA     = ema[0];
 
    return true;
@@ -135,9 +124,9 @@ bool UpdateIndicators()
 
 bool VolatilityFilter()
 {
-   if(CachedATR_M15<=0) return false;
+   if(CachedATR<=0) return false;
 
-   double atrPoints = CachedATR_M15/_Point;
+   double atrPoints = CachedATR/_Point;
 
    if(atrPoints < ATR_Minimum_Points)
       return false;
@@ -145,7 +134,7 @@ bool VolatilityFilter()
    double atrHistory[];
    ArraySetAsSeries(atrHistory,true);
 
-   if(CopyBuffer(ATR_M15_Handle,0,1,ATR_MA_Period,atrHistory)<=0)
+   if(CopyBuffer(ATR_Handle,0,1,ATR_MA_Period,atrHistory)<=0)
       return false;
 
    double sum=0;
@@ -154,7 +143,7 @@ bool VolatilityFilter()
 
    double atrAverage=sum/ATR_MA_Period;
 
-   if(CachedATR_M15 < atrAverage*ATR_Strength_Factor)
+   if(CachedATR < atrAverage*ATR_Strength_Factor)
       return false;
 
    int stopLevel=(int)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
