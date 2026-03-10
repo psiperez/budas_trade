@@ -318,15 +318,16 @@ void ManagePosition()
 {
    if(CachedATR <= 0) UpdateIndicators();
 
-   for(int i=PositionsTotal()-1;i>=0;i--)
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
    {
       if(!pos.SelectByIndex(i)) continue;
-      if(pos.Magic()!=MagicNumber || pos.Symbol()!=_Symbol) continue;
+      if(pos.Magic() != MagicNumber || pos.Symbol() != _Symbol) continue;
 
-      double bid = SymbolInfoDouble(_Symbol,SYMBOL_BID);
-      double ask = SymbolInfoDouble(_Symbol,SYMBOL_ASK);
-
-      double price = (pos.PositionType()==POSITION_TYPE_BUY) ? bid : ask;
+      bool isBuy = (pos.PositionType() == POSITION_TYPE_BUY);
+      double price = isBuy ? bid : ask;
 
       double open = pos.PriceOpen();
       double sl   = pos.StopLoss();
@@ -338,55 +339,21 @@ void ManagePosition()
       // 1. Lógica de Break-even
       if(UseBreakEven)
       {
-         if(MathAbs(price-open) >= CachedATR*BreakEvenTriggerATR)
+         if(MathAbs(price - open) >= CachedATR * BreakEvenTriggerATR)
          {
-            if(pos.PositionType()==POSITION_TYPE_BUY && (sl < open || sl == 0))
-            {
-               targetSL = open;
-               needsModify = true;
-            }
-            if(pos.PositionType()==POSITION_TYPE_SELL && (sl > open || sl == 0))
-            {
-               targetSL = open;
-               needsModify = true;
-            }
+            if(isBuy && (targetSL < open || targetSL == 0)) { targetSL = open; needsModify = true; }
+            if(!isBuy && (targetSL > open || targetSL == 0)) { targetSL = open; needsModify = true; }
          }
       }
 
-      // 2. Lógica de Trailing Stop
-      if(UseTrailingATR && CachedATR > 0)
-      {
-         double trailingSL;
-         if(pos.PositionType()==POSITION_TYPE_BUY)
-         {
-            trailingSL = bid - CachedATR*TrailingATRMultiplier;
-            if(trailingSL > targetSL + TrailingStepPoints*_Point)
-            {
-               targetSL = trailingSL;
-               needsModify = true;
-            }
-         }
-         else
-         {
-            trailingSL = ask + CachedATR*TrailingATRMultiplier;
-            if(sl == 0 || trailingSL < targetSL - TrailingStepPoints*_Point)
-            {
-               targetSL = trailingSL;
-               needsModify = true;
-            }
-         }
-      }
-
-      // 3. Realização Parcial (Corrigido para evitar loop)
+      // 2. Realização Parcial (Executada antes do trailing para travar o BE)
       if(UsePartialClose)
       {
-         bool isBuy = (pos.PositionType() == POSITION_TYPE_BUY);
          double profitPoints = isBuy ? (bid - open) : (open - ask);
          double initialRisk = CachedATR * ATR_Multiplier_SL;
 
-         // Gatilho: Atingiu RR e o Stop Loss ainda não está no Break-even
          bool triggerPartial = (profitPoints >= initialRisk * PartialCloseRR);
-         bool alreadyProtected = isBuy ? (sl >= open - 0.00001) : (sl <= open + 0.00001 && sl > 0);
+         bool alreadyProtected = isBuy ? (targetSL >= open - 0.00001) : (targetSL <= open + 0.00001 && targetSL > 0);
 
          if(triggerPartial && !alreadyProtected && pos.Volume() > SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN))
          {
@@ -398,37 +365,38 @@ void ManagePosition()
             {
                if(trade.PositionClosePartial(pos.Ticket(), closeLot))
                {
-                  targetSL = open; // Trava lucro no Break-even após parcial
+                  targetSL = open;
                   needsModify = true;
                }
             }
          }
       }
 
-      // 4. Trailing Dinâmico (Máximas/Mínimas)
+      // 3. Lógica de Trailing Stop Consolidada (Resolve conflito ATR vs Estrutura)
+      double tATR = 0, tDyn = 0;
+
+      if(UseTrailingATR && CachedATR > 0)
+         tATR = isBuy ? (bid - CachedATR * TrailingATRMultiplier) : (ask + CachedATR * TrailingATRMultiplier);
+
       if(UseDynamicTrailing)
       {
-         double dynSL;
-         if(pos.PositionType() == POSITION_TYPE_BUY)
-         {
-            int idx = iLowest(_Symbol, Timeframe, MODE_LOW, TrailingLookback, 1);
-            dynSL = iLow(_Symbol, Timeframe, idx);
-            if(dynSL > targetSL + TrailingStepPoints * _Point)
-            {
-               targetSL = dynSL;
-               needsModify = true;
-            }
-         }
-         else
-         {
-            int idx = iHighest(_Symbol, Timeframe, MODE_HIGH, TrailingLookback, 1);
-            dynSL = iHigh(_Symbol, Timeframe, idx);
-            if(targetSL == 0 || dynSL < targetSL - TrailingStepPoints * _Point)
-            {
-               targetSL = dynSL;
-               needsModify = true;
-            }
-         }
+         int idx = isBuy ? iLowest(_Symbol, Timeframe, MODE_LOW, TrailingLookback, 1) : iHighest(_Symbol, Timeframe, MODE_HIGH, TrailingLookback, 1);
+         tDyn = isBuy ? iLow(_Symbol, Timeframe, idx) : iHigh(_Symbol, Timeframe, idx);
+      }
+
+      // Escolhe o melhor Stop (que proteja o lucro e respeite o TrailingStep)
+      double bestTrailing = 0;
+      if(isBuy)
+      {
+         // Para compra, queremos o SL mais alto que respeite as regras
+         bestTrailing = MathMax(tATR, tDyn);
+         if(bestTrailing > targetSL + TrailingStepPoints * _Point) { targetSL = bestTrailing; needsModify = true; }
+      }
+      else
+      {
+         // Para venda, queremos o SL mais baixo que respeite as regras
+         bestTrailing = (tATR > 0 && (tDyn == 0 || tATR < tDyn)) ? tATR : tDyn;
+         if(bestTrailing > 0 && (targetSL == 0 || bestTrailing < targetSL - TrailingStepPoints * _Point)) { targetSL = bestTrailing; needsModify = true; }
       }
 
       if(needsModify)
