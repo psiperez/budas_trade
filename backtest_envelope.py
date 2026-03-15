@@ -1,6 +1,7 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 def calculate_backtest():
     # 1. Download Data
@@ -209,5 +210,22 @@ def calculate_backtest():
     print(f"Índice Sharpe: {sharpe:.2f}")
     print(f"Retorno Esperado (Payoff): {payoff:.2f} USD")
     print(f"Total de Negociações (incluindo parciais): {len(history)}")
+
+    # 5. Plotting Balance Evolution
+    cumulative_profit = np.cumsum(history)
+    balance_evolution = 100000 + cumulative_profit
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(balance_evolution, label='Saldo da Conta (Equity)', color='gold', linewidth=1.5)
+    plt.axhline(y=100000, color='red', linestyle='--', alpha=0.5, label='Saldo Inicial')
+
+    plt.title('Evolução do Saldo por Negociação - XAUUSD H1 (Envelope Strategy)')
+    plt.xlabel('Número da Negociação (incluindo parciais)')
+    plt.ylabel('Capital (USD)')
+    plt.legend()
+    plt.grid(True, which='both', linestyle='--', alpha=0.5)
+
+    plt.savefig('equity_curve_gold.png')
+    print("\nGráfico salvo como 'equity_curve_gold.png'")
 
 calculate_backtest()
