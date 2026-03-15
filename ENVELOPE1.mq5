@@ -391,3 +391,4 @@ sTrendEnvelope iTrendEnvelope(double valueh, double valuel, double value, double
    _result.downline    = (workTrendEnvelopes[i][instanceNo+_teTrend]==-1) ? workTrendEnvelopes[i][instanceNo+_teSmax] : EMPTY_VALUE;
    return(_result);                  
 }
+
