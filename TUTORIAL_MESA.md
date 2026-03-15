@@ -33,8 +33,8 @@ class DinheiroAgente(mesa.Agent):
     def step(self):
         # O que o agente faz em cada passo da simulação
         if self.wealth > 0:
-            # Escolhe um agente aleatório do modelo
-            other_agent = self.model.random.choice(self.model.agents)
+            # Escolhe um agente aleatório do modelo (Mesa 2.0+ usa AgentSet)
+            other_agent = self.model.random.choice(list(self.model.agents))
             if other_agent is not None:
                 other_agent.wealth += 1
                 self.wealth -= 1
@@ -157,7 +157,8 @@ class DinheiroAgente(mesa.Agent):
 
     def step(self):
         if self.wealth > 0:
-            other_agent = self.model.random.choice(self.model.agents)
+            # Seleciona um agente aleatório da lista de todos os agentes
+            other_agent = self.model.random.choice(list(self.model.agents))
             other_agent.wealth += 1
             self.wealth -= 1
 
