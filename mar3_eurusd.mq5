@@ -1,8 +1,8 @@
 //+------------------------------------------------------------------+
-//| MAR1_AGRESSIVO_PRO - Institutional Version 5.10                 |
+//| MAR3_EURUSD - Contra-Tendência Version 5.40 (EURUSD)            |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "5.10"
+#property version   "5.40"
 
 #include <Trade/Trade.mqh>
 
@@ -12,23 +12,23 @@ COrderInfo     ord;
 
 //==================== INPUTS ====================//
 
-input double   RiskPercent            = 1.0;
-input double   MaxDrawdownPercent     = 20.0;
-input int      MaxConsecutiveLoss     = 3;
+input double   RiskPercent            = 1.5;    // Risco ligeiramente aumentado para EURUSD
+input double   MaxDrawdownPercent     = 15.0;   // Mais conservador no Drawdown
+input int      MaxConsecutiveLoss     = 4;
 
 input int      BarsLookback           = 20;
 input int      ATR_Period             = 14;
-input int      ATR_MA_Period          = 50;     // Média do ATR
+input int      ATR_MA_Period          = 50;     // Média do ATR (usado no filtro M15)
 input double   ATR_Multiplier_SL      = 2.0;
 input double   RR_Ratio               = 2.5;
 
 input int      EMA_Period             = 200;
 
 input double   ATR_Minimum_Points     = 150;
-input double   ATR_Strength_Factor    = 0.7;    // ATR atual >= 50% da média
+input double   ATR_Strength_Factor    = 0.7;    // ATR atual >= 70% da média (M15)
 
-input double   BreakoutBufferPoints   = 50;
-input int      SpreadMaxPoints        = 80;     
+input double   BreakoutBufferPoints   = 30;     // Reduzido para maior sensibilidade no EURUSD
+input int      SpreadMaxPoints        = 25;     // Mais restrito para EURUSD
 
 input bool     UseBreakEven           = true;
 input double   BreakEvenTriggerATR    = 1.0;
@@ -42,10 +42,10 @@ input int      TrailingLookback       = 2;      // Quantas barras atrás para o 
 
 input bool     UsePartialClose        = true;   // Realização Parcial
 input double   PartialClosePercent    = 50.0;   // % do lote a fechar
-input double   PartialCloseRR         = 1.0;    // Fechar ao atingir 1:1
+input double   PartialCloseRR         = 1.0;    // Fechar ao atingir 1:1 do risco ATR
 
-input ENUM_TIMEFRAMES Timeframe       = PERIOD_H1;
-input int      ExpirationHours        = 4;
+input ENUM_TIMEFRAMES Timeframe       = PERIOD_M15; // Otimizado para M15 no EURUSD
+input int      ExpirationHours        = 2;          // Expiração mais curta para scalping/reversão
 input int      MagicNumber            = 20250223;
 
 //==================== GLOBAL ====================//
@@ -53,11 +53,9 @@ input int      MagicNumber            = 20250223;
 double PeakEquity = 0.0;
 
 int ATR_Handle      = INVALID_HANDLE;
-int ATR_M15_Handle  = INVALID_HANDLE;
 int EMA_Handle      = INVALID_HANDLE;
 
 double CachedATR     = 0.0;
-double CachedATR_M15 = 0.0;
 double CachedEMA     = 0.0;
 
 //+------------------------------------------------------------------+
@@ -67,10 +65,6 @@ int OnInit()
 
    ATR_Handle = iATR(_Symbol, Timeframe, ATR_Period);
    if(ATR_Handle == INVALID_HANDLE) return(INIT_FAILED);
-
-   // ATR de 15 minutos para filtro de volatilidade
-   ATR_M15_Handle = iATR(_Symbol, PERIOD_M15, ATR_Period);
-   if(ATR_M15_Handle == INVALID_HANDLE) return(INIT_FAILED);
 
    EMA_Handle = iMA(_Symbol, Timeframe, EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
    if(EMA_Handle == INVALID_HANDLE) return(INIT_FAILED);
@@ -83,13 +77,12 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    if(ATR_Handle != INVALID_HANDLE) IndicatorRelease(ATR_Handle);
-   if(ATR_M15_Handle != INVALID_HANDLE) IndicatorRelease(ATR_M15_Handle);
    if(EMA_Handle != INVALID_HANDLE) IndicatorRelease(EMA_Handle);
 }
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   // Gestão de posições em cada tick para precisão no trailing
+   // Gestão de posições em cada tick
    ManagePosition();
 
    if(!IsNewBar()) return;
@@ -97,7 +90,7 @@ void OnTick()
    if(!UpdateIndicators()) return;
    if(!CheckSpread()) return;
    if(!CheckDrawdown()) return;
-   if(!CheckConsecutiveLosses()) return; 
+   if(!CheckConsecutiveLosses()) return;
    if(!VolatilityFilter()) return;
 
    if(CountPositions()>0 || CountOrders()>0) return;
@@ -113,19 +106,15 @@ void OnTick()
 bool UpdateIndicators()
 {
    double atr[];
-   double atr_m15[];
    double ema[];
 
    ArraySetAsSeries(atr,true);
-   ArraySetAsSeries(atr_m15,true);
    ArraySetAsSeries(ema,true);
 
    if(CopyBuffer(ATR_Handle,0,1,1,atr)<=0) return false;
-   if(CopyBuffer(ATR_M15_Handle,0,1,1,atr_m15)<=0) return false;
    if(CopyBuffer(EMA_Handle,0,1,1,ema)<=0) return false;
 
    CachedATR     = atr[0];
-   CachedATR_M15 = atr_m15[0];
    CachedEMA     = ema[0];
 
    return true;
@@ -135,10 +124,9 @@ bool UpdateIndicators()
 
 bool VolatilityFilter()
 {
-   if(CachedATR_M15<=0) return false;
+   if(CachedATR<=0) return false;
 
-   // Verificações baseadas no timeframe de 15 minutos (M15)
-   double atrPoints = CachedATR_M15/_Point;
+   double atrPoints = CachedATR/_Point;
 
    if(atrPoints < ATR_Minimum_Points)
       return false;
@@ -146,8 +134,7 @@ bool VolatilityFilter()
    double atrHistory[];
    ArraySetAsSeries(atrHistory,true);
 
-   // Histórico também obtido do handle de 15 minutos
-   if(CopyBuffer(ATR_M15_Handle,0,1,ATR_MA_Period,atrHistory)<=0)
+   if(CopyBuffer(ATR_Handle,0,1,ATR_MA_Period,atrHistory)<=0)
       return false;
 
    double sum=0;
@@ -156,7 +143,7 @@ bool VolatilityFilter()
 
    double atrAverage=sum/ATR_MA_Period;
 
-   if(CachedATR_M15 < atrAverage*ATR_Strength_Factor)
+   if(CachedATR < atrAverage*ATR_Strength_Factor)
       return false;
 
    int stopLevel=(int)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL);
@@ -205,26 +192,26 @@ bool CheckDrawdown()
 bool CheckConsecutiveLosses()
 {
    if(MaxConsecutiveLoss <= 0) return true;
-   
+
    HistorySelect(0, TimeCurrent());
    int total = HistoryDealsTotal();
    int count = 0;
-   
+
    for(int i = total - 1; i >= 0; i--)
    {
       ulong ticket = HistoryDealGetTicket(i);
       if(HistoryDealGetInteger(ticket, DEAL_MAGIC) != MagicNumber) continue;
       if(HistoryDealGetString(ticket, DEAL_SYMBOL) != _Symbol) continue;
       if(HistoryDealGetInteger(ticket, DEAL_ENTRY) != DEAL_ENTRY_OUT) continue;
-      
-      double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT) 
-                    + HistoryDealGetDouble(ticket, DEAL_SWAP) 
+
+      double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT)
+                    + HistoryDealGetDouble(ticket, DEAL_SWAP)
                     + HistoryDealGetDouble(ticket, DEAL_COMMISSION);
-      
+
       if(profit < 0) count++;
-      else break; 
+      else break;
    }
-   
+
    return (count < MaxConsecutiveLoss);
 }
 
@@ -255,10 +242,11 @@ void PlaceOrders(double high,double low)
 
    double bid = SymbolInfoDouble(_Symbol,SYMBOL_BID);
 
-   if(bid > CachedEMA)
+   // Lógica de Contra-Tendência (Entradas contrárias à EMA)
+   if(bid < CachedEMA)
       PlaceBuy(buyEntry);
 
-   if(bid < CachedEMA)
+   if(bid > CachedEMA)
       PlaceSell(sellEntry);
 }
 
@@ -322,7 +310,9 @@ double CalculateLot(double entry,double sl)
    lot = MathFloor(lot/step)*step;
    lot = MathMax(minLot,MathMin(maxLot,lot));
 
-   return NormalizeDouble(lot, 2);
+   int digits = (int)-MathLog10(step);
+   if(digits < 0) digits = 0;
+   return NormalizeDouble(lot, digits);
 }
 
 //==================== POSITION MANAGEMENT ====================//
@@ -331,119 +321,104 @@ void ManagePosition()
 {
    if(CachedATR <= 0) UpdateIndicators();
 
-   for(int i=PositionsTotal()-1;i>=0;i--)
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
    {
       if(!pos.SelectByIndex(i)) continue;
-      if(pos.Magic()!=MagicNumber || pos.Symbol()!=_Symbol) continue;
+      if(pos.Magic() != MagicNumber || pos.Symbol() != _Symbol) continue;
 
-      double bid = SymbolInfoDouble(_Symbol,SYMBOL_BID);
-      double ask = SymbolInfoDouble(_Symbol,SYMBOL_ASK);
-      
-      double price = (pos.PositionType()==POSITION_TYPE_BUY) ? bid : ask;
+      bool isBuy = (pos.PositionType() == POSITION_TYPE_BUY);
+      double price = isBuy ? bid : ask;
 
       double open = pos.PriceOpen();
       double sl   = pos.StopLoss();
       double tp   = pos.TakeProfit();
-      
+
       double targetSL = sl;
       bool needsModify = false;
 
       // 1. Lógica de Break-even
       if(UseBreakEven)
       {
-         if(MathAbs(price-open) >= CachedATR*BreakEvenTriggerATR)
+         if(MathAbs(price - open) >= CachedATR * BreakEvenTriggerATR)
          {
-            if(pos.PositionType()==POSITION_TYPE_BUY && (sl < open || sl == 0))
-            {
-               targetSL = open;
-               needsModify = true;
-            }
-            if(pos.PositionType()==POSITION_TYPE_SELL && (sl > open || sl == 0))
-            {
-               targetSL = open;
-               needsModify = true;
-            }
+            if(isBuy && (targetSL < open || targetSL == 0)) { targetSL = open; needsModify = true; }
+            if(!isBuy && (targetSL > open || targetSL == 0)) { targetSL = open; needsModify = true; }
          }
       }
 
-      // 2. Lógica de Trailing Stop
-      if(UseTrailingATR && CachedATR > 0)
-      {
-         double trailingSL;
-         if(pos.PositionType()==POSITION_TYPE_BUY)
-         {
-            trailingSL = bid - CachedATR*TrailingATRMultiplier;
-            if(trailingSL > targetSL + TrailingStepPoints*_Point)
-            {
-               targetSL = trailingSL;
-               needsModify = true;
-            }
-         }
-         else
-         {
-            trailingSL = ask + CachedATR*TrailingATRMultiplier;
-            if(sl == 0 || trailingSL < targetSL - TrailingStepPoints*_Point)
-            {
-               targetSL = trailingSL;
-               needsModify = true;
-            }
-         }
-      }
-      
-      // 3. Realização Parcial
+      // 2. Lógica de Realização Parcial (Executada antes do trailing para travar o BE)
       if(UsePartialClose)
       {
-         bool isBuy = (pos.PositionType() == POSITION_TYPE_BUY);
          double profitPoints = isBuy ? (bid - open) : (open - ask);
-
-         // Cálculo do risco base para o gatilho da parcial (usa o ATR se o SL original já sumiu)
          double initialRisk = CachedATR * ATR_Multiplier_SL;
 
-         // Gatilho: Preço atingiu RR alvo E o Stop Loss ainda não está no Break-even
          bool triggerPartial = (profitPoints >= initialRisk * PartialCloseRR);
-         bool alreadyProtected = isBuy ? (sl >= open - 0.00001) : (sl <= open + 0.00001 && sl > 0);
+
+         double initialVol = 0;
+         if(HistorySelectByPosition(pos.Ticket()))
+         {
+            int deals = HistoryDealsTotal();
+            for(int d=0; d<deals; d++)
+            {
+               ulong d_ticket = HistoryDealGetTicket(d);
+               if(HistoryDealGetInteger(d_ticket, DEAL_ENTRY) == DEAL_ENTRY_IN)
+               {
+                  initialVol = HistoryDealGetDouble(d_ticket, DEAL_VOLUME);
+                  break;
+               }
+            }
+         }
+
+         bool alreadyProtected = (pos.Volume() < initialVol - 0.00001);
 
          if(triggerPartial && !alreadyProtected && pos.Volume() > SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN))
          {
-            double closeLot = NormalizeDouble(pos.Volume() * PartialClosePercent / 100.0, 2);
             double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+            int volDigits = (int)-MathLog10(step);
+            if(volDigits<0) volDigits=0;
+
+            double closeLot = NormalizeDouble(pos.Volume() * PartialClosePercent / 100.0, volDigits);
             closeLot = MathFloor(closeLot / step) * step;
 
-            if(closeLot >= SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN))
+            if(closeLot >= SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN) && (pos.Volume() - closeLot) >= SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN))
             {
                if(trade.PositionClosePartial(pos.Ticket(), closeLot))
                {
-                  targetSL = open; // Move para o zero a zero após parcial
+                  targetSL = open;
                   needsModify = true;
                }
             }
          }
       }
 
-      // 4. Trailing Dinâmico (Máximas/Mínimas)
+      // 3. Lógica de Trailing Stop Consolidada (Resolve conflito ATR vs Estrutura)
+      double tATR = 0, tDyn = 0;
+
+      if(UseTrailingATR && CachedATR > 0)
+         tATR = isBuy ? (bid - CachedATR * TrailingATRMultiplier) : (ask + CachedATR * TrailingATRMultiplier);
+
       if(UseDynamicTrailing)
       {
-         double dynSL;
-         if(pos.PositionType() == POSITION_TYPE_BUY)
-         {
-            int idx = iLowest(_Symbol, Timeframe, MODE_LOW, TrailingLookback, 1);
-            dynSL = iLow(_Symbol, Timeframe, idx);
-            if(dynSL > targetSL + TrailingStepPoints * _Point)
-            {
-               targetSL = dynSL;
-               needsModify = true;
-            }
-         }
-         else
-         {
-            int idx = iHighest(_Symbol, Timeframe, MODE_HIGH, TrailingLookback, 1);
-            dynSL = iHigh(_Symbol, Timeframe, idx);
-            if(targetSL == 0 || dynSL < targetSL - TrailingStepPoints * _Point)
-            {
-               targetSL = dynSL;
-               needsModify = true;
-            }
-         }
+         int idx = isBuy ? iLowest(_Symbol, Timeframe, MODE_LOW, TrailingLookback, 1) : iHighest(_Symbol, Timeframe, MODE_HIGH, TrailingLookback, 1);
+         tDyn = isBuy ? iLow(_Symbol, Timeframe, idx) : iHigh(_Symbol, Timeframe, idx);
+      }
+
+      // Escolhe o melhor Stop (que proteja o lucro e respeite o TrailingStep)
+      double bestTrailing = 0;
+      if(isBuy)
+      {
+         // Para compra, queremos o SL mais alto que respeite as regras
+         bestTrailing = MathMax(tATR, tDyn);
+         if(bestTrailing > targetSL + TrailingStepPoints * _Point) { targetSL = bestTrailing; needsModify = true; }
+      }
+      else
+      {
+         // Para venda, queremos o SL mais baixo que respeite as regras
+         bestTrailing = (tATR > 0 && (tDyn == 0 || tATR < tDyn)) ? tATR : tDyn;
+         if(bestTrailing > 0 && (targetSL == 0 || bestTrailing < targetSL - TrailingStepPoints * _Point)) { targetSL = bestTrailing; needsModify = true; }
       }
 
       if(needsModify)
