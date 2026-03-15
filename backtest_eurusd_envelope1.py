@@ -2,6 +2,14 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
+'''
+Lucro Líquido Total: 294935.68 USD
+Fator de Lucro: 11.98
+Índice Sharpe: 23.17
+Retorno Esperado (Payoff): 867.46 USD
+Total de Negociações (incluindo parciais): 340
+'''
+
 def calculate_backtest():
     # 1. Download Data
     # Pair: EURUSD=X (Proxy for EURUSD)
