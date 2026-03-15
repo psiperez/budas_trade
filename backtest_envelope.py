@@ -205,15 +205,26 @@ def calculate_backtest():
 
     payoff = net_profit / len(history)
 
+    # 5. Plotting Balance Evolution & Drawdown Calculation
+    cumulative_profit = np.cumsum(history)
+    balance_evolution = 100000 + cumulative_profit
+
+    # Max Drawdown Calculation
+    peak = 100000
+    max_dd = 0
+    for val in balance_evolution:
+        if val > peak:
+            peak = val
+        dd = (peak - val) / 100000 * 100
+        if dd > max_dd:
+            max_dd = dd
+
     print(f"Lucro Líquido Total: {net_profit:.2f} USD")
     print(f"Fator de Lucro: {profit_factor:.2f}")
     print(f"Índice Sharpe: {sharpe:.2f}")
     print(f"Retorno Esperado (Payoff): {payoff:.2f} USD")
+    print(f"Drawdown Máximo: {max_dd:.2f}%")
     print(f"Total de Negociações (incluindo parciais): {len(history)}")
-
-    # 5. Plotting Balance Evolution
-    cumulative_profit = np.cumsum(history)
-    balance_evolution = 100000 + cumulative_profit
 
     plt.figure(figsize=(12, 6))
     plt.plot(balance_evolution, label='Saldo da Conta (Equity)', color='gold', linewidth=1.5)
