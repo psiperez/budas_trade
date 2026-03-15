@@ -86,38 +86,50 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
+   // Atualizamos indicadores para garantir que CachedATR esteja disponível para ManagePosition
+   UpdateIndicators();
+
    // Gestão de posições em cada tick
    ManagePosition();
 
    if(!IsNewBar()) return;
 
-   if(!UpdateIndicators()) return;
    if(!CheckSpread()) return;
    if(!CheckDrawdown()) return;
    if(!CheckConsecutiveLosses()) return;
 
    // Sincronizamos o histórico do envelope para garantir detecção correta de mudança
-   int lookback = inpAtrPeriod + 5;
+   // Precisamos de histórico suficiente para o ATR (inpAtrPeriod) + convergência da lógica de trailing
+   int lookback = 100;
+   int needed = lookback + inpAtrPeriod + 5;
+
    double high[], low[], close[];
    ArraySetAsSeries(high, true);
    ArraySetAsSeries(low, true);
    ArraySetAsSeries(close, true);
 
-   if(CopyHigh(_Symbol, Timeframe, 0, lookback + 5, high) < lookback + 5) return;
-   if(CopyLow(_Symbol, Timeframe, 0, lookback + 5, low) < lookback + 5) return;
-   if(CopyClose(_Symbol, Timeframe, 0, lookback + 5, close) < lookback + 5) return;
+   if(CopyHigh(_Symbol, Timeframe, 0, needed, high) < needed) return;
+   if(CopyLow(_Symbol, Timeframe, 0, needed, low) < needed) return;
+   if(CopyClose(_Symbol, Timeframe, 0, needed, close) < needed) return;
 
    int rates_total = (int)SeriesInfoInteger(_Symbol, Timeframe, SERIES_BARS_COUNT);
    sTrendEnvelope res_curr;
 
-   // Processamos o histórico recente para preencher workTrendEnvelopes
+   // Processamos o histórico recente para preencher workTrendEnvelopes e convergir a tendência
    for(int shift = lookback; shift >= 1; shift--)
    {
       double _atr = 0;
+      // Cálculo do ATR manual (True Range smoothed)
       for (int k=0; k<inpAtrPeriod; k++)
-         _atr += MathMax(high[shift+k], close[shift+1+k]) - MathMin(low[shift+k], close[shift+1+k]);
+      {
+         double cur_h = high[shift+k];
+         double cur_l = low[shift+k];
+         double pre_c = close[shift+k+1];
+         _atr += MathMax(cur_h, pre_c) - MathMin(cur_l, pre_c);
+      }
       _atr /= inpAtrPeriod;
 
+      // i cresce no tempo: rates_total - 1 é a barra 0 (atual)
       int i = rates_total - 1 - shift;
       res_curr = iTrendEnvelope(high[shift], low[shift], close[shift], _atr * inpDeviation, i, rates_total);
    }
