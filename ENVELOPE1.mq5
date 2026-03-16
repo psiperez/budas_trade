@@ -86,31 +86,41 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
+   if(!UpdateIndicators()) return;
+
    // Gestão de posições em cada tick
    ManagePosition();
 
    if(!IsNewBar()) return;
 
-   if(!UpdateIndicators()) return;
    if(!CheckSpread()) return;
    if(!CheckDrawdown()) return;
    if(!CheckConsecutiveLosses()) return; 
 
    // Sincronizamos o histórico do envelope para garantir detecção correta de mudança
-   int lookback = inpAtrPeriod + 5;
+   int lookback = 100;
    double high[], low[], close[];
    ArraySetAsSeries(high, true);
    ArraySetAsSeries(low, true);
    ArraySetAsSeries(close, true);
 
-   if(CopyHigh(_Symbol, Timeframe, 0, lookback + 5, high) < lookback + 5) return;
-   if(CopyLow(_Symbol, Timeframe, 0, lookback + 5, low) < lookback + 5) return;
-   if(CopyClose(_Symbol, Timeframe, 0, lookback + 5, close) < lookback + 5) return;
+   int needed = lookback + inpAtrPeriod + 5;
+   if(CopyHigh(_Symbol, Timeframe, 0, needed, high) < needed) return;
+   if(CopyLow(_Symbol, Timeframe, 0, needed, low) < needed) return;
+   if(CopyClose(_Symbol, Timeframe, 0, needed, close) < needed) return;
 
-   int rates_total = (int)SeriesInfoInteger(_Symbol, Timeframe, SERIES_BARS_COUNT);
    sTrendEnvelope res_curr;
    
    // Processamos o histórico recente para preencher workTrendEnvelopes
+   // Usamos shift como índice para evitar problemas com redimensionamento do histórico
+   ArrayResize(workTrendEnvelopes, lookback + 5);
+   for(int k=0; k < (lookback + 5); k++)
+   {
+      workTrendEnvelopes[k][0 + _teSmin] = 0;
+      workTrendEnvelopes[k][0 + _teSmax] = 0;
+      workTrendEnvelopes[k][0 + _teTrend] = 0;
+   }
+
    for(int shift = lookback; shift >= 1; shift--)
    {
       double _atr = 0;
@@ -118,8 +128,7 @@ void OnTick()
          _atr += MathMax(high[shift+k], close[shift+1+k]) - MathMin(low[shift+k], close[shift+1+k]); 
       _atr /= inpAtrPeriod;
       
-      int i = rates_total - 1 - shift;
-      res_curr = iTrendEnvelope(high[shift], low[shift], close[shift], _atr * inpDeviation, i, rates_total);
+      res_curr = iTrendEnvelope(high[shift], low[shift], close[shift], _atr * inpDeviation, shift, lookback);
    }
 
    if(res_curr.trendChange)
@@ -131,9 +140,8 @@ void OnTick()
       double entry = (res_curr.trend == 1) ? ask : bid;
       
       // Stop Loss no nível do trend anterior à mudança (Smax se mudou para UP, Smin se mudou para DOWN)
-      // O nível anterior está em i_prev = rates_total - 1 - 2
-      int i_prev = rates_total - 1 - 2;
-      double sl = (res_curr.trend == 1) ? workTrendEnvelopes[i_prev][0 + _teSmax] : workTrendEnvelopes[i_prev][0 + _teSmin];
+      // O nível anterior está no shift 2 (bar anterior à que acaba de fechar)
+      double sl = (res_curr.trend == 1) ? workTrendEnvelopes[2][0 + _teSmax] : workTrendEnvelopes[2][0 + _teSmin];
       
       if(res_curr.trend == 1) 
          PlaceBuyMarket(entry, sl);
@@ -358,35 +366,35 @@ void ManagePosition()
 
 //==================== TREND ENVELOPE LOGIC ====================//
 
-sTrendEnvelope iTrendEnvelope(double valueh, double valuel, double value, double deviation, int i, int bars, int instanceNo=0)
+sTrendEnvelope iTrendEnvelope(double valueh, double valuel, double value, double deviation, int i, int max_i, int instanceNo=0)
 {
-   if (ArrayRange(workTrendEnvelopes,0)!=bars) ArrayResize(workTrendEnvelopes,bars); 
    instanceNo*=_trendEnvelopesInstancesSize;
    
    workTrendEnvelopes[i][instanceNo+_teSmax]  = valueh+deviation;
    workTrendEnvelopes[i][instanceNo+_teSmin]  = valuel-deviation;
    
-   if(i==0)
+   if(i >= max_i)
    {
       workTrendEnvelopes[i][instanceNo+_teTrend] = 0;
    }
    else
    {
-      double prevSmax = workTrendEnvelopes[i-1][instanceNo+_teSmax];
-      double prevSmin = workTrendEnvelopes[i-1][instanceNo+_teSmin];
-      double prevTrend = workTrendEnvelopes[i-1][instanceNo+_teTrend];
+      double prevSmax = workTrendEnvelopes[i+1][instanceNo+_teSmax];
+      double prevSmin = workTrendEnvelopes[i+1][instanceNo+_teSmin];
+      double prevTrend = workTrendEnvelopes[i+1][instanceNo+_teTrend];
 
-      workTrendEnvelopes[i][instanceNo+_teTrend] = (value>prevSmax) ? 1 : (value<prevSmin) ? -1 : prevTrend;
+      workTrendEnvelopes[i][instanceNo+_teTrend] = (value>prevSmax && prevSmax > 0) ? 1 : (value<prevSmin && prevSmin > 0) ? -1 : prevTrend;
 
-      if (workTrendEnvelopes[i][instanceNo+_teTrend]>0 && workTrendEnvelopes[i][instanceNo+_teSmin]<prevSmin) 
-         workTrendEnvelopes[i][instanceNo+_teSmin] = prevSmin;
-      if (workTrendEnvelopes[i][instanceNo+_teTrend]<0 && workTrendEnvelopes[i][instanceNo+_teSmax]>prevSmax) 
-         workTrendEnvelopes[i][instanceNo+_teSmax] = prevSmax;
+      if (workTrendEnvelopes[i][instanceNo+_teTrend]>0 && (workTrendEnvelopes[i][instanceNo+_teSmin]<prevSmin || prevSmin == 0))
+         if(prevSmin > 0) workTrendEnvelopes[i][instanceNo+_teSmin] = prevSmin;
+
+      if (workTrendEnvelopes[i][instanceNo+_teTrend]<0 && (workTrendEnvelopes[i][instanceNo+_teSmax]>prevSmax || prevSmax == 0))
+         if(prevSmax > 0) workTrendEnvelopes[i][instanceNo+_teSmax] = prevSmax;
    }
    
    sTrendEnvelope _result;
    _result.trend       = (int)workTrendEnvelopes[i][instanceNo+_teTrend];
-   _result.trendChange = (i>0) ? ( workTrendEnvelopes[i][instanceNo+_teTrend]!=workTrendEnvelopes[i-1][instanceNo+_teTrend]) : false;
+   _result.trendChange = (i < max_i) ? ( workTrendEnvelopes[i][instanceNo+_teTrend]!=workTrendEnvelopes[i+1][instanceNo+_teTrend]) : false;
    _result.upline      = (workTrendEnvelopes[i][instanceNo+_teTrend]== 1) ? workTrendEnvelopes[i][instanceNo+_teSmin] : EMPTY_VALUE;
    _result.downline    = (workTrendEnvelopes[i][instanceNo+_teTrend]==-1) ? workTrendEnvelopes[i][instanceNo+_teSmax] : EMPTY_VALUE;
    return(_result);                  
