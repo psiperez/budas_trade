@@ -1,8 +1,8 @@
 //+------------------------------------------------------------------+
-//| ENVELOPE1 - ATR Trend Envelope Version 1.00                      |
+//| ENVELOPE1 - ATR Trend Envelope Version 1.10                      |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.00"
+#property version   "1.10"
 
 #include <Trade/Trade.mqh>
 
@@ -16,12 +16,8 @@ input double   RiskPercent            = 1.0;
 input double   MaxDrawdownPercent     = 30.0;
 input int      MaxConsecutiveLoss     = 5;
 
-input int      ATR_Period             = 14;     // Período ATR (Trend Envelope)
-input double   ATR_Multiplier_SL      = 2.0;    // Não usado na lógica de SL fixa do envelope, mas mantido para compatibilidade
+input int      ATR_Period             = 14;     // Período ATR (Trend Envelope & Management)
 input double   RR_Ratio               = 2.5;
-
-input double   ATR_Minimum_Points     = 80;    
-input double   ATR_Strength_Factor    = 0.5;    // ATR atual >= 50% da média
 
 input int      SpreadMaxPoints        = 80;     
 
@@ -35,12 +31,10 @@ input int      TrailingStepPoints     = 50;     // Passo mínimo para modificar 
 input bool     UsePartialStages       = true;   // Realizações parciais 25, 50, 75%
 input double   StagePercent           = 25.0;   // % do lote original em cada estágio
 
-input int      inpAtrPeriod           = 14;     // ATR period for Trend Envelope
 input double   inpDeviation           = 1.5;    // ATR multiplication factor for Trend Envelope
 
 input ENUM_TIMEFRAMES Timeframe       = PERIOD_H1;
-input int      ExpirationHours        = 8;
-input int      MagicNumber            = 20250224; // Updated Magic Number
+input int      MagicNumber            = 20250224;
 
 //==================== GLOBAL ====================//
 
@@ -70,9 +64,9 @@ int OnInit()
 {
    trade.SetExpertMagicNumber(MagicNumber);
 
+   // 1) Consolidado ATR_Period
    ATR_Handle = iATR(_Symbol, Timeframe, ATR_Period);
    if(ATR_Handle == INVALID_HANDLE) return(INIT_FAILED);
-
 
    PeakEquity = AccountInfoDouble(ACCOUNT_EQUITY);
 
@@ -86,6 +80,7 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
+   // 3) Atualizamos o ATR cacheado no início do tick
    if(!UpdateIndicators()) return;
 
    // Gestão de posições em cada tick
@@ -97,22 +92,24 @@ void OnTick()
    if(!CheckDrawdown()) return;
    if(!CheckConsecutiveLosses()) return; 
 
-   // Sincronizamos o histórico do envelope para garantir detecção correta de mudança
+   // 5) Usamos Bars() em vez de SeriesInfoInteger()
    int lookback = 100;
+   int total_bars = Bars(_Symbol, Timeframe);
+   if(total_bars < lookback + ATR_Period + 10) return;
+
    double high[], low[], close[];
    ArraySetAsSeries(high, true);
    ArraySetAsSeries(low, true);
    ArraySetAsSeries(close, true);
 
-   int needed = lookback + inpAtrPeriod + 5;
+   int needed = lookback + ATR_Period + 10;
    if(CopyHigh(_Symbol, Timeframe, 0, needed, high) < needed) return;
    if(CopyLow(_Symbol, Timeframe, 0, needed, low) < needed) return;
    if(CopyClose(_Symbol, Timeframe, 0, needed, close) < needed) return;
 
    sTrendEnvelope res_curr;
    
-   // Processamos o histórico recente para preencher workTrendEnvelopes
-   // Usamos shift como índice para evitar problemas com redimensionamento do histórico
+   // 2) Redimensionamento seguro do buffer
    ArrayResize(workTrendEnvelopes, lookback + 5);
    for(int k=0; k < (lookback + 5); k++)
    {
@@ -121,32 +118,57 @@ void OnTick()
       workTrendEnvelopes[k][0 + _teTrend] = 0;
    }
 
+   // 4) Loop com limites claros para evitar loop infinito
    for(int shift = lookback; shift >= 1; shift--)
    {
       double _atr = 0;
-      for (int k=0; k<inpAtrPeriod; k++) 
-         _atr += MathMax(high[shift+k], close[shift+1+k]) - MathMin(low[shift+k], close[shift+1+k]); 
-      _atr /= inpAtrPeriod;
+      int count = 0;
+      for (int k=0; k<ATR_Period; k++)
+      {
+         int idx = shift + k;
+         if(idx + 1 >= needed) break;
+         _atr += MathMax(high[idx], close[idx+1]) - MathMin(low[idx], close[idx+1]);
+         count++;
+      }
+      if(count > 0) _atr /= count;
+      else _atr = 0;
       
       res_curr = iTrendEnvelope(high[shift], low[shift], close[shift], _atr * inpDeviation, shift, lookback);
    }
 
    if(res_curr.trendChange)
    {
-      CloseAll();
-      
-      double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-      double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-      double entry = (res_curr.trend == 1) ? ask : bid;
-      
-      // Stop Loss no nível do trend anterior à mudança (Smax se mudou para UP, Smin se mudou para DOWN)
-      // O nível anterior está no shift 2 (bar anterior à que acaba de fechar)
-      double sl = (res_curr.trend == 1) ? workTrendEnvelopes[2][0 + _teSmax] : workTrendEnvelopes[2][0 + _teSmin];
-      
-      if(res_curr.trend == 1) 
-         PlaceBuyMarket(entry, sl);
-      else if(res_curr.trend == -1) 
-         PlaceSellMarket(entry, sl);
+      // 6) Verifica se já existe posição aberta do mesmo Magic/Symbol antes de abrir nova
+      if(CountPositions() == 0)
+      {
+         double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+         double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+         double entry = (res_curr.trend == 1) ? ask : bid;
+
+         // 2) Indexação segura: shift 2 é a barra anterior à que fechou
+         double sl = (res_curr.trend == 1) ? workTrendEnvelopes[2][0 + _teSmax] : workTrendEnvelopes[2][0 + _teSmin];
+
+         if(res_curr.trend == 1)
+            PlaceBuyMarket(entry, sl);
+         else if(res_curr.trend == -1)
+            PlaceSellMarket(entry, sl);
+      }
+      else
+      {
+         // Se a tendência inverteu, fechamos a atual e abrimos na nova direção
+         if((res_curr.trend == 1 && HasPosition(POSITION_TYPE_SELL)) ||
+            (res_curr.trend == -1 && HasPosition(POSITION_TYPE_BUY)))
+         {
+            CloseAll();
+            double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+            double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+            double entry = (res_curr.trend == 1) ? ask : bid;
+            double sl = (res_curr.trend == 1) ? workTrendEnvelopes[2][0 + _teSmax] : workTrendEnvelopes[2][0 + _teSmin];
+
+            if(res_curr.trend == 1) PlaceBuyMarket(entry, sl);
+            else if(res_curr.trend == -1) PlaceSellMarket(entry, sl);
+         }
+      }
    }
 }
 
@@ -154,11 +176,12 @@ void OnTick()
 
 bool UpdateIndicators()
 {
-   double atr[];
-   ArraySetAsSeries(atr,true);
-   if(CopyBuffer(ATR_Handle,0,1,1,atr)<=0) return false;
-   CachedATR = atr[0];
-   return true;
+   double atr_buf[];
+   ArraySetAsSeries(atr_buf,true);
+   // Copiamos 1 valor apenas para o uso imediato (trailing/BE)
+   if(CopyBuffer(ATR_Handle,0,0,1,atr_buf)<=0) return false;
+   CachedATR = atr_buf[0];
+   return (CachedATR > 0);
 }
 
 //==================== CORE ====================//
@@ -241,6 +264,27 @@ void CloseAll()
             trade.OrderDelete(ord.Ticket());
 }
 
+//==================== AUX ====================//
+
+int CountPositions()
+{
+   int count = 0;
+   for(int i=PositionsTotal()-1; i>=0; i--)
+      if(pos.SelectByIndex(i))
+         if(pos.Magic()==MagicNumber && pos.Symbol()==_Symbol)
+            count++;
+   return count;
+}
+
+bool HasPosition(ENUM_POSITION_TYPE type)
+{
+   for(int i=PositionsTotal()-1; i>=0; i--)
+      if(pos.SelectByIndex(i))
+         if(pos.Magic()==MagicNumber && pos.Symbol()==_Symbol && pos.PositionType()==type)
+            return true;
+   return false;
+}
+
 //==================== LOT ====================//
 
 double CalculateLot(double entry,double sl)
@@ -267,6 +311,9 @@ double CalculateLot(double entry,double sl)
 
 void ManagePosition()
 {
+   // 3) CachedATR é atualizado no OnTick e usado para todas as posições deste símbolo
+   if(CachedATR <= 0) return;
+
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
 
@@ -285,14 +332,15 @@ void ManagePosition()
       double targetSL = sl;
       bool needsModify = false;
 
-      // 1. Lógica de Break-even
-      if(UseBreakEven && CachedATR > 0)
+      // 7) Lógica de Break-even e Trailing integradas para evitar conflitos
+      // Primeiro calculamos o nível desejado de proteção (BE)
+      double bePrice = open;
+      bool beTriggered = (MathAbs(price-open) >= CachedATR*BreakEvenTriggerATR);
+
+      if(UseBreakEven && beTriggered)
       {
-         if(MathAbs(price-open) >= CachedATR*BreakEvenTriggerATR)
-         {
-            if(isBuy && (targetSL < open || targetSL == 0)) { targetSL = open; needsModify = true; }
-            if(!isBuy && (targetSL > open || targetSL == 0)) { targetSL = open; needsModify = true; }
-         }
+         if(isBuy && (targetSL < bePrice || targetSL == 0)) { targetSL = bePrice; needsModify = true; }
+         if(!isBuy && (targetSL > bePrice || targetSL == 0)) { targetSL = bePrice; needsModify = true; }
       }
 
       // 2. Realização Parcial (Estágios 25, 50, 75% do TP)
@@ -341,7 +389,9 @@ void ManagePosition()
                {
                   if(trade.PositionClosePartial(pos.Ticket(), closeLot))
                   {
-                     targetSL = open; 
+                     // Ao realizar parcial, garantimos o BE se ainda não estiver
+                     if(isBuy && targetSL < open) targetSL = open;
+                     if(!isBuy && (targetSL > open || targetSL == 0)) targetSL = open;
                      needsModify = true;
                   }
                }
@@ -349,10 +399,11 @@ void ManagePosition()
          }
       }
 
-      // 3. Lógica de Trailing Stop
-      if(UseTrailingATR && CachedATR > 0)
+      // 3. Lógica de Trailing Stop - 7) Verifica conflito com targetSL atual (BE ou anterior)
+      if(UseTrailingATR)
       {
          double trailingSL = isBuy ? (bid - CachedATR*TrailingATRMultiplier) : (ask + CachedATR*TrailingATRMultiplier);
+         // Trailing só move o stop se for para MELHORAR a proteção (subir no buy, descer no sell)
          if(isBuy && trailingSL > targetSL + TrailingStepPoints*_Point) { targetSL = trailingSL; needsModify = true; }
          if(!isBuy && (targetSL == 0 || trailingSL < targetSL - TrailingStepPoints*_Point)) { targetSL = trailingSL; needsModify = true; }
       }
@@ -399,4 +450,3 @@ sTrendEnvelope iTrendEnvelope(double valueh, double valuel, double value, double
    _result.downline    = (workTrendEnvelopes[i][instanceNo+_teTrend]==-1) ? workTrendEnvelopes[i][instanceNo+_teSmax] : EMPTY_VALUE;
    return(_result);                  
 }
-
