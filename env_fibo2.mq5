@@ -1,13 +1,14 @@
 //+------------------------------------------------------------------+
-//| ENVELOPE1 - Fibonacci & Channel Strategy - Version 1.20          |
+//| ENV_FIBO2 - Fibonacci Trend Envelope Version 1.00                |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "1.20"
+#property version   "1.00"
 
 #include <Trade/Trade.mqh>
 
 CTrade         trade;
 CPositionInfo  pos;
+COrderInfo     ord;
 
 //==================== INPUTS ====================//
 
@@ -27,13 +28,10 @@ input bool     UseTrailingATR         = true;
 input double   TrailingATRMultiplier  = 1.5;
 input int      TrailingStepPoints     = 50;     // Passo mínimo para modificar Trailing
 
-input bool     UsePartialStages       = true;   // Realizações parciais 25, 50, 75%
-input double   StagePercent           = 25.0;   // % do lote original em cada estágio
-
 input double   inpDeviation           = 1.5;    // ATR multiplication factor for Trend Envelope
 
-input ENUM_TIMEFRAMES Timeframe       = PERIOD_H1;
-input int      MagicNumber            = 20250224;
+input ENUM_TIMEFRAMES Timeframe       = PERIOD_H1; // Timeframe de 1 hora
+input int      MagicNumber            = 20250226;
 
 //==================== GLOBAL ====================//
 
@@ -74,7 +72,6 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    if(ATR_Handle != INVALID_HANDLE) IndicatorRelease(ATR_Handle);
-   ObjectsDeleteAll(0, "EV1_");
 }
 //+------------------------------------------------------------------+
 void OnTick()
@@ -130,23 +127,30 @@ void OnTick()
       res_curr = iTrendEnvelope(high[shift], low[shift], close[shift], _atr * inpDeviation, shift, lookback);
    }
 
-   if(res_curr.trendChange)
+   // 2) Cálculos de Fibonacci (Smin, Smax de res_curr)
+   double smin = res_curr.smin;
+   double smax = res_curr.smax;
+   double range = smax - smin;
+
+   if(range > 0)
    {
-      // Limpar setup anterior
-      CloseAll();
-      ObjectsDeleteAll(0, "EV1_");
+      double fibo236 = smax - 0.236 * range;
+      double fibo618 = smax - 0.618 * range;
 
-      double range = res_curr.smax - res_curr.smin;
-      double fibo50 = res_curr.smin + (range * 0.5);
+      double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
 
-      // Desenhar Canal e Fibonacci
-      DrawStrategyVisuals(res_curr.smin, res_curr.smax, fibo50);
+      // 3) Implementação das regras operacionais (Apenas 1 ordem/posição por vez)
+      if(CountOrders() == 0 && CountPositions() == 0)
+      {
+         // Buy Stop no nível 23.6% (se o preço estiver abaixo)
+         if(ask < fibo236)
+            PlacePendingStop(POSITION_TYPE_BUY, fibo236, smax, smin, "Fibo 23.6 Buy Stop");
 
-      // Stop Loss no limite oposto do envelope
-      double sl = (res_curr.trend == 1) ? res_curr.smin : res_curr.smax;
-
-      // Abrir ordem pendente
-      PlacePendingOrder(res_curr.trend, fibo50, sl);
+         // Sell Stop no nível 61.8% (se o preço estiver acima)
+         else if(bid > fibo618)
+            PlacePendingStop(POSITION_TYPE_SELL, fibo618, smin, smax, "Fibo 61.8 Sell Stop");
+      }
    }
 }
 
@@ -187,50 +191,19 @@ sTrendEnvelope iTrendEnvelope(double vh, double vl, double vc, double dev, int i
    return r;
 }
 
-void DrawStrategyVisuals(double smin, double smax, double mid)
+void PlacePendingStop(ENUM_POSITION_TYPE type, double entry, double tp, double sl, string comment)
 {
-   datetime t0 = iTime(_Symbol, Timeframe, 0);
-   datetime t1 = iTime(_Symbol, Timeframe, 50); // Linha estendida para trás
-
-   // Canal Equidistante
-   if(ObjectCreate(0, "EV1_Channel", OBJ_CHANNEL, 0, t1, smax, t0, smax, t1, smin))
-   {
-      ObjectSetInteger(0, "EV1_Channel", OBJPROP_COLOR, clrDodgerBlue);
-      ObjectSetInteger(0, "EV1_Channel", OBJPROP_WIDTH, 2);
-      ObjectSetInteger(0, "EV1_Channel", OBJPROP_RAY_RIGHT, true);
-   }
-
-   // Fibonacci Retracement
-   if(ObjectCreate(0, "EV1_Fibo", OBJ_FIBO, 0, t1, smin, t1, smax))
-   {
-      ObjectSetInteger(0, "EV1_Fibo", OBJPROP_COLOR, clrGoldenrod);
-      ObjectSetInteger(0, "EV1_Fibo", OBJPROP_RAY_RIGHT, true);
-   }
-}
-
-void PlacePendingOrder(int trend, double entry, double sl)
-{
-   double price = (trend == 1) ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   double tp = entry + (entry - sl) * RR_Ratio;
    double lot = CalculateLot(entry, sl);
    if(lot <= 0) return;
 
-   // Lógica para Ordem Stop no nível de 50%
-   // Se o preço já estiver além do nível (comum em rompimentos fortes), usamos o tipo de ordem permitido
-   if(trend == 1)
-   {
-      if(price < entry)
-         trade.BuyStop(lot, NormalizeDouble(entry, _Digits), _Symbol, NormalizeDouble(sl, _Digits), NormalizeDouble(tp, _Digits));
-      else
-         trade.BuyLimit(lot, NormalizeDouble(entry, _Digits), _Symbol, NormalizeDouble(sl, _Digits), NormalizeDouble(tp, _Digits));
-   }
+   bool success = false;
+   if(type == POSITION_TYPE_BUY)
+      success = trade.BuyStop(lot, NormalizeDouble(entry, _Digits), _Symbol, NormalizeDouble(sl, _Digits), NormalizeDouble(tp, _Digits), ORDER_TIME_GTC, 0, comment);
    else
-   {
-      if(price > entry)
-         trade.SellStop(lot, NormalizeDouble(entry, _Digits), _Symbol, NormalizeDouble(sl, _Digits), NormalizeDouble(tp, _Digits));
-      else
-         trade.SellLimit(lot, NormalizeDouble(entry, _Digits), _Symbol, NormalizeDouble(sl, _Digits), NormalizeDouble(tp, _Digits));
-   }
+      success = trade.SellStop(lot, NormalizeDouble(entry, _Digits), _Symbol, NormalizeDouble(sl, _Digits), NormalizeDouble(tp, _Digits), ORDER_TIME_GTC, 0, comment);
+
+   if(!success)
+      Print(comment + " Error: ", trade.ResultRetcode());
 }
 
 //==================== HELPERS ====================//
@@ -285,20 +258,27 @@ bool CheckConsecutiveLosses()
    return (count < MaxConsecutiveLoss);
 }
 
-void CloseAll()
+int CountOrders()
 {
-   for(int i=PositionsTotal()-1; i>=0; i--)
-      if(pos.SelectByIndex(i))
-         if(pos.Magic()==MagicNumber && pos.Symbol()==_Symbol)
-            trade.PositionClose(pos.Ticket());
-
+   int count = 0;
    for(int i=OrdersTotal()-1; i>=0; i--)
    {
       ulong ticket = OrderGetTicket(i);
       if(OrderSelect(ticket))
          if(OrderGetInteger(ORDER_MAGIC)==MagicNumber && OrderGetString(ORDER_SYMBOL)==_Symbol)
-            trade.OrderDelete(ticket);
+            count++;
    }
+   return count;
+}
+
+int CountPositions()
+{
+   int count = 0;
+   for(int i=PositionsTotal()-1; i>=0; i--)
+      if(pos.SelectByIndex(i))
+         if(pos.Magic()==MagicNumber && pos.Symbol()==_Symbol)
+            count++;
+   return count;
 }
 
 double CalculateLot(double entry, double sl)
