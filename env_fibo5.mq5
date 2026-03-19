@@ -6,6 +6,8 @@
 
 #include <Trade/Trade.mqh>
 
+#resource "\\Indicators\\ATR_Trend_env_fibo.ex5"
+
 CTrade         trade;
 CPositionInfo  pos;
 COrderInfo     ord;
@@ -52,8 +54,8 @@ int OnInit()
 {
    trade.SetExpertMagicNumber(MagicNumber);
 
-   // 1) Handle para o indicador customizado ATR Trend env_fibo
-   FiboInd_Handle = iCustom(_Symbol, Timeframe, "ATR Trend env_fibo", ATR_Period, inpDeviation);
+   // 1) Handle para o indicador customizado ATR_Trend_env_fibo
+   FiboInd_Handle = iCustom(_Symbol, Timeframe, "ATR_Trend_env_fibo", ATR_Period, inpDeviation);
    if(FiboInd_Handle == INVALID_HANDLE) return(INIT_FAILED);
 
    // 2) O ATR_Handle agora aponta para o mesmo indicador customizado, usando o buffer de ATR (índice 9)

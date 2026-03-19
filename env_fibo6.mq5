@@ -6,6 +6,8 @@
 
 #include <Trade/Trade.mqh>
 
+#resource "\\Indicators\\ATR_Trend_env_fibo.ex5"
+
 CTrade         trade;
 CPositionInfo  pos;
 COrderInfo     ord;
@@ -53,11 +55,11 @@ int OnInit()
 {
    trade.SetExpertMagicNumber(MagicNumber);
 
-   // 1) Handle para o indicador customizado ATR Trend env_fibo
-   FiboInd_Handle = iCustom(_Symbol, Timeframe, "ATR Trend env_fibo", ATR_Period, inpDeviation);
+   // 1) Handle para o indicador customizado ATR_Trend_env_fibo
+   FiboInd_Handle = iCustom(_Symbol, Timeframe, "ATR_Trend_env_fibo", ATR_Period, inpDeviation);
    if(FiboInd_Handle == INVALID_HANDLE)
    {
-      Print("Error: ATR Trend env_fibo.ex5 not found or failed to load. Check MQL5/Indicators folder.");
+      Print("Error: ATR_Trend_env_fibo.ex5 not found or failed to load. Check MQL5/Indicators folder.");
       return(INIT_FAILED);
    }
 

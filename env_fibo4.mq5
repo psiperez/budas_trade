@@ -6,6 +6,8 @@
 
 #include <Trade/Trade.mqh>
 
+#resource "\\Indicators\\ATR_Trend_env_fibo.ex5"
+
 CTrade         trade;
 CPositionInfo  pos;
 
@@ -60,8 +62,8 @@ int OnInit()
    ATR_Handle = iATR(_Symbol, Timeframe, ATR_Period);
    if(ATR_Handle == INVALID_HANDLE) return(INIT_FAILED);
 
-   // 2) Handle para o indicador customizado ATR Trend env_fibo
-   FiboInd_Handle = iCustom(_Symbol, Timeframe, "ATR Trend env_fibo", ATR_Period, inpDeviation);
+   // 2) Handle para o indicador customizado ATR_Trend_env_fibo
+   FiboInd_Handle = iCustom(_Symbol, Timeframe, "ATR_Trend_env_fibo", ATR_Period, inpDeviation);
    if(FiboInd_Handle == INVALID_HANDLE) return(INIT_FAILED);
 
    PeakEquity = AccountInfoDouble(ACCOUNT_EQUITY);
