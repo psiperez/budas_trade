@@ -55,7 +55,11 @@ int OnInit()
 
    // 1) Handle para o indicador customizado ATR Trend env_fibo
    FiboInd_Handle = iCustom(_Symbol, Timeframe, "ATR Trend env_fibo", ATR_Period, inpDeviation);
-   if(FiboInd_Handle == INVALID_HANDLE) return(INIT_FAILED);
+   if(FiboInd_Handle == INVALID_HANDLE)
+   {
+      Print("Error: ATR Trend env_fibo.ex5 not found or failed to load.");
+      return(INIT_FAILED);
+   }
 
    // 2) O ATR_Handle aponta para o buffer 9 do indicador customizado
    ATR_Handle = FiboInd_Handle;
@@ -85,10 +89,10 @@ void OnTick()
    ArraySetAsSeries(dn_line_buf, true);
 
    // Precisamos de 2 barras para verificar o nivel "mesmo preço há 2 barras"
-   if(CopyBuffer(FiboInd_Handle, 4, 0, 2, f236_buf) <= 0) return;
-   if(CopyBuffer(FiboInd_Handle, 8, 0, 2, f764_buf) <= 0) return;
-   if(CopyBuffer(FiboInd_Handle, 0, 0, 2, up_line_buf) <= 0) return;
-   if(CopyBuffer(FiboInd_Handle, 1, 0, 2, dn_line_buf) <= 0) return;
+   if(CopyBuffer(FiboInd_Handle, 4, 0, 2, f236_buf) < 2) return;
+   if(CopyBuffer(FiboInd_Handle, 8, 0, 2, f764_buf) < 2) return;
+   if(CopyBuffer(FiboInd_Handle, 0, 0, 2, up_line_buf) < 2) return;
+   if(CopyBuffer(FiboInd_Handle, 1, 0, 2, dn_line_buf) < 2) return;
 
    double f236 = f236_buf[0];
    double f764 = f764_buf[0];
