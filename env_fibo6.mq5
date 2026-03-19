@@ -57,14 +57,16 @@ int OnInit()
    FiboInd_Handle = iCustom(_Symbol, Timeframe, "ATR Trend env_fibo", ATR_Period, inpDeviation);
    if(FiboInd_Handle == INVALID_HANDLE)
    {
-      Print("Error: ATR Trend env_fibo.ex5 not found or failed to load.");
+      Print("Error: ATR Trend env_fibo.ex5 not found or failed to load. Check MQL5/Indicators folder.");
       return(INIT_FAILED);
    }
 
    // 2) O ATR_Handle aponta para o buffer 9 do indicador customizado
    ATR_Handle = FiboInd_Handle;
 
+   // 3) Inicialização segura do PeakEquity
    PeakEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+   if(PeakEquity <= 0) PeakEquity = AccountInfoDouble(ACCOUNT_BALANCE);
 
    return(INIT_SUCCEEDED);
 }
@@ -233,9 +235,12 @@ bool CheckSpread()
 bool CheckDrawdown()
 {
    double equity=AccountInfoDouble(ACCOUNT_EQUITY);
-   if(equity>PeakEquity) PeakEquity=equity;
-   double dd=(PeakEquity-equity)/PeakEquity*100.0;
-   return (dd<MaxDrawdownPercent);
+   if(equity > PeakEquity) PeakEquity = equity;
+
+   if(PeakEquity <= 0) return true; // Evita divisão por zero se dados não carregaram
+
+   double dd = (PeakEquity - equity) / PeakEquity * 100.0;
+   return (dd < MaxDrawdownPercent);
 }
 
 bool CheckConsecutiveLosses()
