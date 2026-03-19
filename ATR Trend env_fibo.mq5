@@ -4,7 +4,7 @@
 #property description "ATR Trend env_fibo with Fibonacci Retracement"
 //------------------------------------------------------------------
 #property indicator_chart_window
-#property indicator_buffers 9
+#property indicator_buffers 10
 #property indicator_plots   9
 
 #property indicator_label1  "Trend envelope up trend line"
@@ -67,6 +67,7 @@ input double  inpDeviation = 1.5;  // ATR multilication factor
 
 double lineup[],linedn[],arrowup[],arrowdn[];
 double fibo236[], fibo382[], fibo500[], fibo618[], fibo764[];
+double atr_buffer[];
 
 //
 //--- custom structures
@@ -97,6 +98,7 @@ int OnInit()
    SetIndexBuffer(6,fibo500,INDICATOR_DATA);
    SetIndexBuffer(7,fibo618,INDICATOR_DATA);
    SetIndexBuffer(8,fibo764,INDICATOR_DATA);
+   SetIndexBuffer(9,atr_buffer,INDICATOR_CALCULATIONS);
 
    return(INIT_SUCCEEDED);
 }
@@ -128,6 +130,7 @@ int OnCalculate(const int rates_total,
    {
       double _atr = 0; for (int k=0; k<inpAtrPeriod && (i-k-1)>=0; k++) _atr += MathMax(high[i-k],close[i-k-1])-MathMin(low[i-k],close[i-k-1]); _atr /= inpAtrPeriod;
       sTrendEnvelope _result = iTrendEnvelope(high[i],low[i],close[i],_atr*inpDeviation,i,rates_total);
+         atr_buffer[i] = _atr;
          lineup[i]  = _result.upline;
          linedn[i]  = _result.downline;
          arrowup[i] = (_result.trendChange && _result.trend== 1) ? lineup[i] : EMPTY_VALUE;
