@@ -46,20 +46,24 @@ bool trend_change = trend != trend[1]
 plot_lineup = trend == 1 ? smin : na
 plot_linedn = trend == -1 ? smax : na
 
-plot(plot_lineup, "Up Trend Line", color=color.new(color.dodgerblue, 0), linewidth=2, style=plot.style_linebr)
-plot(plot_linedn, "Down Trend Line", color=color.new(color.crimson, 0), linewidth=2, style=plot.style_linebr)
+// Using hex codes to ensure compatibility in Pine Script v6
+color_up = #1e90ff // DodgerBlue
+color_dn = #dc143c // Crimson
+
+plot(plot_lineup, title="Up Trend Line", color=color.new(color_up, 0), linewidth=2, style=plot.style_linebr)
+plot(plot_linedn, title="Down Trend Line", color=color.new(color_dn, 0), linewidth=2, style=plot.style_linebr)
 
 // Arrows (using shapes)
-plotshape(trend_change and trend == 1 ? smin : na, "Up Trend Start", shape.circle, location.absolute, color.new(color.dodgerblue, 0), size=size.tiny, title="Up Arrow", offset=0)
-plotshape(trend_change and trend == -1 ? smax : na, "Down Trend Start", shape.circle, location.absolute, color.new(color.crimson, 0), size=size.tiny, title="Down Arrow", offset=0)
+plotshape(trend_change and trend == 1 ? smin : na, title="Up Trend Start", style=shape.circle, location=location.absolute, color=color.new(color_up, 0), size=size.tiny, offset=0)
+plotshape(trend_change and trend == -1 ? smax : na, title="Down Trend Start", style=shape.circle, location=location.absolute, color=color.new(color_dn, 0), size=size.tiny, offset=0)
 
 // --- Fibonacci Levels ---
 float range_val = smax - smin
-float fibo236 = smax - 0.236 * range_val
-float fibo382 = smax - 0.382 * range_val
-float fibo500 = smax - 0.500 * range_val
-float fibo618 = smax - 0.618 * range_val
-float fibo764 = smax - 0.764 * range_val
+float fibo236 = smin + 0.236 * range_val
+float fibo382 = smin + 0.382 * range_val
+float fibo500 = smin + 0.500 * range_val
+float fibo618 = smin + 0.618 * range_val
+float fibo764 = smin + 0.764 * range_val
 
 // Plot Fibonacci only when a trend is active
 plot_f236 = (trend != 0) ? fibo236 : na
@@ -68,8 +72,8 @@ plot_f500 = (trend != 0) ? fibo500 : na
 plot_f618 = (trend != 0) ? fibo618 : na
 plot_f764 = (trend != 0) ? fibo764 : na
 
-plot(plot_f236, "Fibo 23.6%", color=color.new(color.silver, 0), style=plot.style_linebr)
-plot(plot_f382, "Fibo 38.2%", color=color.new(color.silver, 0), style=plot.style_linebr)
-plot(plot_f500, "Fibo 50.0%", color=color.new(color.gray, 0), style=plot.style_linebr)
-plot(plot_f618, "Fibo 61.8%", color=color.new(color.silver, 0), style=plot.style_linebr)
-plot(plot_f764, "Fibo 76.4%", color=color.new(color.silver, 0), style=plot.style_linebr)
+plot(plot_f236, title="Fibo 23.6%", color=color.new(#c0c0c0, 0), style=plot.style_linebr)
+plot(plot_f382, title="Fibo 38.2%", color=color.new(#c0c0c0, 0), style=plot.style_linebr)
+plot(plot_f500, title="Fibo 50.0%", color=color.new(#808080, 0), style=plot.style_linebr)
+plot(plot_f618, title="Fibo 61.8%", color=color.new(#c0c0c0, 0), style=plot.style_linebr)
+plot(plot_f764, title="Fibo 76.4%", color=color.new(#c0c0c0, 0), style=plot.style_linebr)

@@ -1,7 +1,7 @@
 //------------------------------------------------------------------
 #property indicator_chart_window
-#property indicator_buffers 8
-#property indicator_plots   6
+#property indicator_buffers 12
+#property indicator_plots   9
 #property indicator_label1  "Trend envelope up trend line"
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  clrDodgerBlue
@@ -12,20 +12,32 @@
 #property indicator_width2  2
 #property indicator_label3  "Fibo 23.6%"
 #property indicator_type3   DRAW_LINE
-#property indicator_color3  clrGray
+#property indicator_color3  clrSilver
 #property indicator_style3  STYLE_DOT
-#property indicator_label4  "Fibo 61.8%"
+#property indicator_label4  "Fibo 38.2%"
 #property indicator_type4   DRAW_LINE
-#property indicator_color4  clrGray
+#property indicator_color4  clrSilver
 #property indicator_style4  STYLE_DOT
-#property indicator_label5  "Trend envelope up trend start"
-#property indicator_type5   DRAW_ARROW
-#property indicator_color5  clrDodgerBlue
-#property indicator_width5  2
-#property indicator_label6  "Trend envelope down trend start"
-#property indicator_type6   DRAW_ARROW
-#property indicator_color6  clrCrimson
-#property indicator_width6  2
+#property indicator_label5  "Fibo 50.0%"
+#property indicator_type5   DRAW_LINE
+#property indicator_color5  clrGray
+#property indicator_style5  STYLE_DOT
+#property indicator_label6  "Fibo 61.8%"
+#property indicator_type6   DRAW_LINE
+#property indicator_color6  clrSilver
+#property indicator_style6  STYLE_DOT
+#property indicator_label7  "Fibo 76.4%"
+#property indicator_type7   DRAW_LINE
+#property indicator_color7  clrSilver
+#property indicator_style7  STYLE_DOT
+#property indicator_label8  "Trend envelope up trend start"
+#property indicator_type8   DRAW_ARROW
+#property indicator_color8  clrDodgerBlue
+#property indicator_width8  2
+#property indicator_label9  "Trend envelope down trend start"
+#property indicator_type9   DRAW_ARROW
+#property indicator_color9  clrCrimson
+#property indicator_width9  2
 
 //
 //--- input parameters
@@ -39,7 +51,7 @@ input double  inpDeviation = 1.5;  // ATR multilication factor
 //--- indicator buffers
 //
 
-double lineup[],linedn[],fibo236[],fibo618[],arrowup[],arrowdn[],smin_buf[],smax_buf[];
+double lineup[],linedn[],fibo236[],fibo382[],fibo500[],fibo618[],fibo764[],arrowup[],arrowdn[],smin_buf[],smax_buf[];
 
 //
 //--- custom structures
@@ -49,8 +61,7 @@ struct sTrendEnvelope
 {
    double upline;
    double downline;
-   double f236;
-   double f618;
+   double f236, f382, f500, f618, f764;
    int    trend;
    bool   trendChange;
 };
@@ -63,11 +74,14 @@ int OnInit()
    SetIndexBuffer(0,lineup,INDICATOR_DATA);
    SetIndexBuffer(1,linedn,INDICATOR_DATA);
    SetIndexBuffer(2,fibo236,INDICATOR_DATA);
-   SetIndexBuffer(3,fibo618,INDICATOR_DATA);
-   SetIndexBuffer(4,arrowup,INDICATOR_DATA); PlotIndexSetInteger(4,PLOT_ARROW,159);
-   SetIndexBuffer(5,arrowdn,INDICATOR_DATA); PlotIndexSetInteger(5,PLOT_ARROW,159);
-   SetIndexBuffer(6,smin_buf,INDICATOR_CALCULATIONS);
-   SetIndexBuffer(7,smax_buf,INDICATOR_CALCULATIONS);
+   SetIndexBuffer(3,fibo382,INDICATOR_DATA);
+   SetIndexBuffer(4,fibo500,INDICATOR_DATA);
+   SetIndexBuffer(5,fibo618,INDICATOR_DATA);
+   SetIndexBuffer(6,fibo764,INDICATOR_DATA);
+   SetIndexBuffer(7,arrowup,INDICATOR_DATA); PlotIndexSetInteger(7,PLOT_ARROW,159);
+   SetIndexBuffer(8,arrowdn,INDICATOR_DATA); PlotIndexSetInteger(8,PLOT_ARROW,159);
+   SetIndexBuffer(9,smin_buf,INDICATOR_CALCULATIONS);
+   SetIndexBuffer(10,smax_buf,INDICATOR_CALCULATIONS);
    return(INIT_SUCCEEDED);
 }
 //------------------------------------------------------------------
@@ -101,7 +115,10 @@ int OnCalculate(const int rates_total,
          lineup[i]  = _result.upline;
          linedn[i]  = _result.downline;
          fibo236[i] = _result.f236;
+         fibo382[i] = _result.f382;
+         fibo500[i] = _result.f500;
          fibo618[i] = _result.f618;
+         fibo764[i] = _result.f764;
          arrowup[i] = (_result.trendChange && _result.trend== 1) ? lineup[i] : EMPTY_VALUE;
          arrowdn[i] = (_result.trendChange && _result.trend==-1) ? linedn[i] : EMPTY_VALUE;
    }
@@ -152,7 +169,10 @@ sTrendEnvelope iTrendEnvelope(double valueh, double valuel, double value, double
    _result.upline      = (workTrendEnvelopes[i][instanceNo+_teTrend]== 1) ? smin : EMPTY_VALUE;
    _result.downline    = (workTrendEnvelopes[i][instanceNo+_teTrend]==-1) ? smax : EMPTY_VALUE;
    _result.f236        = smin + range * 0.236;
+   _result.f382        = smin + range * 0.382;
+   _result.f500        = smin + range * 0.500;
    _result.f618        = smin + range * 0.618;
+   _result.f764        = smin + range * 0.764;
 
    smin_buf[i] = smin;
    smax_buf[i] = smax;

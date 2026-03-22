@@ -82,9 +82,9 @@ void OnTick()
    if(CopyBuffer(Fibo_Handle, 0, 1, 2, upLine) < 2) return;
    if(CopyBuffer(Fibo_Handle, 1, 1, 2, dnLine) < 2) return;
    if(CopyBuffer(Fibo_Handle, 2, 1, 2, f236) < 2) return;
-   if(CopyBuffer(Fibo_Handle, 3, 1, 2, f618) < 2) return;
-   if(CopyBuffer(Fibo_Handle, 6, 1, 2, smin) < 2) return;
-   if(CopyBuffer(Fibo_Handle, 7, 1, 2, smax) < 2) return;
+   if(CopyBuffer(Fibo_Handle, 5, 1, 2, f618) < 2) return;
+   if(CopyBuffer(Fibo_Handle, 9, 1, 2, smin) < 2) return;
+   if(CopyBuffer(Fibo_Handle, 10, 1, 2, smax) < 2) return;
 
    // Com ArraySetAsSeries(true):
    // Index 0 = Barra 1 (mais recente fechada)

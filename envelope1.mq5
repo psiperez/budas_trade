@@ -378,7 +378,7 @@ sTrendEnvelope iTrendEnvelope(double valueh, double valuel, double value, double
    workTrendEnvelopes[i][instanceNo+_teSmax]  = valueh+deviation;
    workTrendEnvelopes[i][instanceNo+_teSmin]  = valuel-deviation;
 
-   if(i==0)
+   if(i==0 || workTrendEnvelopes[i-1][instanceNo+_teSmax] == 0)
    {
       workTrendEnvelopes[i][instanceNo+_teTrend] = 0;
    }
