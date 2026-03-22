@@ -1,0 +1,48 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// (CC) Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License
+// Original MQL5: Minions.WeisWaves.mq5 by www.MinionsLabs.com
+// Converted to Pine Script v6
+
+//@version=6
+indicator("Weis Volume Waves", shorttitle="Weis Waves", overlay=false)
+
+// --- Inputs ---
+// Note: In TradingView, 'volume' is the tick volume
+// There is no separate 'tick_volume' variable in Pine Script
+inpVolumeType = input.string("Volume", "Volume Type", options=["Volume"])
+
+// --- Volume Selection ---
+// In Pine Script, 'volume' represents the tick volume
+float vol = volume
+
+// --- Weis Volume Waves Calculation ---
+var float ww = 0.0
+var int waveDirection = 0
+
+// Reset condition detection
+bool resetWave = false
+
+if bar_index >= 2
+    // Determine if we need to reset the wave
+    if close >= close[1]  // Current bar closes up
+        if close[1] >= close[2]  // Previous bar also closed up
+            resetWave := false
+        else  // Previous bar closed down, start new up wave
+            resetWave := true
+    else  // Current bar closes down
+        if close[1] < close[2]  // Previous bar also closed down
+            resetWave := false
+        else  // Previous bar closed up, start new down wave
+            resetWave := true
+    
+    // Calculate Weis Volume Wave
+    if resetWave
+        ww := vol
+        waveDirection := close >= close[1] ? 0 : 1
+    else
+        ww := nz(ww[1], 0) + vol
+        waveDirection := nz(waveDirection[1], 0)
+else
+    // First bars initialization
+    ww := vol
+    waveDirection := close >= close[1] ? 0 : 1
