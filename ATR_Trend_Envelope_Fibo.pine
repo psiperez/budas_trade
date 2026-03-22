@@ -1,8 +1,8 @@
 // This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // © mladen / translated by Jules
 
-//@version=5
-indicator("ATR Trend Envelopes with Fibonacci Retracement", overlay=true, shorttitle="ATR Trend Envo Fibo")
+//@version=6
+indicator("ATR Trend Envelopes with Fibonacci Retracement", overlay=true, shorttitle="ATR Env Fb")
 
 // --- Inputs ---
 atr_period = input.int(14, "ATR Period", minval=1)
@@ -20,9 +20,9 @@ var int trend = 0
 
 // Current potential bands
 float current_smax = high + (atr_val * deviation)
-float current_smin = low - (atr_val * deviation)
+float current_min_band = low - (atr_val * deviation)
 
-// Trend logic
+// Trend logic using previous bars state
 if close > smax[1] and smax[1] > 0
     trend := 1
 else if close < smin[1] and smin[1] > 0
@@ -30,14 +30,14 @@ else if close < smin[1] and smin[1] > 0
 
 // Band trailing logic
 if trend == 1
-    smin := math.max(current_smin, smin[1])
+    smin := math.max(current_min_band, smin[1])
     smax := current_smax
 else if trend == -1
     smax := math.min(current_smax, smax[1])
-    smin := current_smin
+    smin := current_min_band
 else
     smax := current_smax
-    smin := current_smin
+    smin := current_min_band
 
 // Detect Trend Change
 bool trend_change = trend != trend[1]
@@ -49,9 +49,9 @@ plot_linedn = trend == -1 ? smax : na
 plot(plot_lineup, "Up Trend Line", color=color.new(color.dodgerblue, 0), linewidth=2, style=plot.style_linebr)
 plot(plot_linedn, "Down Trend Line", color=color.new(color.crimson, 0), linewidth=2, style=plot.style_linebr)
 
-// Arrows
-plotshape(trend_change and trend == 1, "Up Trend Start", shape.circle, location.absolute, color.new(color.dodgerblue, 0), size=size.tiny, title="Up Arrow")
-plotshape(trend_change and trend == -1, "Down Trend Start", shape.circle, location.absolute, color.new(color.crimson, 0), size=size.tiny, title="Down Arrow")
+// Arrows (using shapes)
+plotshape(trend_change and trend == 1 ? smin : na, "Up Trend Start", shape.circle, location.absolute, color.new(color.dodgerblue, 0), size=size.tiny, title="Up Arrow", offset=0)
+plotshape(trend_change and trend == -1 ? smax : na, "Down Trend Start", shape.circle, location.absolute, color.new(color.crimson, 0), size=size.tiny, title="Down Arrow", offset=0)
 
 // --- Fibonacci Levels ---
 float range_val = smax - smin
