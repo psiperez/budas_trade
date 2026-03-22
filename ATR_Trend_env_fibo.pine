@@ -1,0 +1,79 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © mladen / translated by Jules
+
+//@version=6
+indicator("ATR Trend Envelopes with Fibonacci Retracement", overlay=true, shorttitle="ATR Env Fb")
+
+// --- Inputs ---
+atr_period = input.int(14, "ATR Period", minval=1)
+deviation  = input.float(1.5, "ATR Multiplication Factor", step=0.1)
+
+// --- Indicator Logic ---
+// Manual TR and ATR matching MQL5 SMA calculation
+tr_val = math.max(high, close[1]) - math.min(low, close[1])
+atr_val = ta.sma(tr_val, atr_period)
+
+// State variables
+var float smin = 0.0
+var float smax = 0.0
+var int trend = 0
+
+// Current potential bands
+float current_smax = high + (atr_val * deviation)
+float current_min_band = low - (atr_val * deviation)
+
+// Trend logic using previous bars state
+if close > smax[1] and smax[1] > 0
+    trend := 1
+else if close < smin[1] and smin[1] > 0
+    trend := -1
+
+// Band trailing logic
+if trend == 1
+    smin := math.max(current_min_band, smin[1])
+    smax := current_smax
+else if trend == -1
+    smax := math.min(current_smax, smax[1])
+    smin := current_min_band
+else
+    smax := current_smax
+    smin := current_min_band
+
+// Detect Trend Change
+bool trend_change = trend != trend[1]
+
+// --- Plots ---
+plot_lineup = trend == 1 ? smin : na
+plot_linedn = trend == -1 ? smax : na
+
+// Using hex codes to ensure compatibility in Pine Script v6
+color_up = #1e90ff // DodgerBlue
+color_dn = #dc143c // Crimson
+
+plot(plot_lineup, title="Up Trend Line", color=color.new(color_up, 0), linewidth=2, style=plot.style_linebr)
+plot(plot_linedn, title="Down Trend Line", color=color.new(color_dn, 0), linewidth=2, style=plot.style_linebr)
+
+// Arrows (using shapes)
+plotshape(trend_change and trend == 1 ? smin : na, title="Up Trend Start", style=shape.circle, location=location.absolute, color=color.new(color_up, 0), size=size.tiny, offset=0)
+plotshape(trend_change and trend == -1 ? smax : na, title="Down Trend Start", style=shape.circle, location=location.absolute, color=color.new(color_dn, 0), size=size.tiny, offset=0)
+
+// --- Fibonacci Levels ---
+float range_val = smax - smin
+float fibo236 = smax - 0.236 * range_val
+float fibo382 = smax - 0.382 * range_val
+float fibo500 = smax - 0.500 * range_val
+float fibo618 = smax - 0.618 * range_val
+float fibo764 = smax - 0.764 * range_val
+
+// Plot Fibonacci only when a trend is active
+plot_f236 = (trend != 0) ? fibo236 : na
+plot_f382 = (trend != 0) ? fibo382 : na
+plot_f500 = (trend != 0) ? fibo500 : na
+plot_f618 = (trend != 0) ? fibo618 : na
+plot_f764 = (trend != 0) ? fibo764 : na
+
+plot(plot_f236, title="Fibo 23.6%", color=color.new(#c0c0c0, 0), style=plot.style_linebr)
+plot(plot_f382, title="Fibo 38.2%", color=color.new(#c0c0c0, 0), style=plot.style_linebr)
+plot(plot_f500, title="Fibo 50.0%", color=color.new(#808080, 0), style=plot.style_linebr)
+plot(plot_f618, title="Fibo 61.8%", color=color.new(#c0c0c0, 0), style=plot.style_linebr)
+plot(plot_f764, title="Fibo 76.4%", color=color.new(#c0c0c0, 0), style=plot.style_linebr)
