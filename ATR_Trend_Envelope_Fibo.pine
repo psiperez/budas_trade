@@ -50,12 +50,12 @@ plot_linedn = trend == -1 ? smax : na
 color_up = #1e90ff // DodgerBlue
 color_dn = #dc143c // Crimson
 
-plot(plot_lineup, title="Up Trend Line", color=color.new(color_up, 0), linewidth=2, style=plot.style_linebr)
-plot(plot_linedn, title="Down Trend Line", color=color.new(color_dn, 0), linewidth=2, style=plot.style_linebr)
+plot(series=plot_lineup, title="Up Trend Line", color=color.new(color_up, 0), linewidth=2, style=plot.style_linebr)
+plot(series=plot_linedn, title="Down Trend Line", color=color.new(color_dn, 0), linewidth=2, style=plot.style_linebr)
 
 // Arrows (using shapes)
-plotshape(trend_change and trend == 1 ? smin : na, title="Up Trend Start", style=shape.circle, location=location.absolute, color=color.new(color_up, 0), size=size.tiny, offset=0)
-plotshape(trend_change and trend == -1 ? smax : na, title="Down Trend Start", style=shape.circle, location=location.absolute, color=color.new(color_dn, 0), size=size.tiny, offset=0)
+plotshape(series=trend_change and trend == 1 ? smin : na, title="Up Trend Start", style=shape.circle, location=location.absolute, color=color.new(color_up, 0), size=size.tiny, offset=0)
+plotshape(series=trend_change and trend == -1 ? smax : na, title="Down Trend Start", style=shape.circle, location=location.absolute, color=color.new(color_dn, 0), size=size.tiny, offset=0)
 
 // --- Fibonacci Levels ---
 float range_val = smax - smin
@@ -72,8 +72,8 @@ plot_f500 = (trend != 0) ? fibo500 : na
 plot_f618 = (trend != 0) ? fibo618 : na
 plot_f764 = (trend != 0) ? fibo764 : na
 
-plot(plot_f236, title="Fibo 23.6%", color=color.new(#c0c0c0, 0), style=plot.style_linebr)
-plot(plot_f382, title="Fibo 38.2%", color=color.new(#c0c0c0, 0), style=plot.style_linebr)
-plot(plot_f500, title="Fibo 50.0%", color=color.new(#808080, 0), style=plot.style_linebr)
-plot(plot_f618, title="Fibo 61.8%", color=color.new(#c0c0c0, 0), style=plot.style_linebr)
-plot(plot_f764, title="Fibo 76.4%", color=color.new(#c0c0c0, 0), style=plot.style_linebr)
+plot(series=plot_f236, title="Fibo 23.6%", color=color.new(#c0c0c0, 0), style=plot.style_linebr)
+plot(series=plot_f382, title="Fibo 38.2%", color=color.new(#c0c0c0, 0), style=plot.style_linebr)
+plot(series=plot_f500, title="Fibo 50.0%", color=color.new(#808080, 0), style=plot.style_linebr)
+plot(series=plot_f618, title="Fibo 61.8%", color=color.new(#c0c0c0, 0), style=plot.style_linebr)
+plot(series=plot_f764, title="Fibo 76.4%", color=color.new(#c0c0c0, 0), style=plot.style_linebr)

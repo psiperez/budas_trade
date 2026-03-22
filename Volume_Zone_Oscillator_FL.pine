@@ -31,16 +31,22 @@ float lev_up = fl_min + (inp_fl_up_pct * range_val / 100.0)
 float lev_dn = fl_min + (inp_fl_dn_pct * range_val / 100.0)
 
 // --- Trend and Coloring ---
-// Logic: 1 if above up level (Green), 2 if below down level (Red), 0 otherwise (Gray)
-color vzo_color = vzo > lev_up ? #00ff00 : (vzo < lev_dn ? #ff0000 : #808080)
+// Colors using hex codes for stability in version 6
+color color_bull = #00ff00 // Green
+color color_bear = #ff0000 // Red
+color color_neut = #808080 // Gray
+color color_fill = #dcdcdc // Gainsboro-like
+
+color vzo_color = vzo > lev_up ? color_bull : (vzo < lev_dn ? color_bear : color_neut)
 
 // --- Plots ---
-plot_vzo = plot(vzo, "VZO", color=vzo_color, linewidth=2)
-plot_up  = plot(lev_up, "Level Up", color=color.new(#d3d3d3, 50))
-plot_dn  = plot(lev_dn, "Level Down", color=color.new(#d3d3d3, 50))
+// Explicit parameter names to satisfy Pine Script v6 compiler requirements
+plot(series=vzo, title="VZO", color=vzo_color, linewidth=2)
+plot_up = plot(series=lev_up, title="Level Up", color=color.new(#d3d3d3, 50))
+plot_dn = plot(series=lev_dn, title="Level Down", color=color.new(#d3d3d3, 50))
 
 // Zone filling matching DRAW_FILLING in MQL5
-fill(plot_up, plot_dn, color=color.new(#dcdcdc, 80), title="Filling")
+fill(plot1=plot_up, plot2=plot_dn, color=color.new(color_fill, 80), title="Filling")
 
 // Zero line for reference
-hline(0, "Zero Line", color=color.new(color.gray, 70), linestyle=hline.style_dotted)
+hline(price=0, title="Zero Line", color=color.new(#808080, 70), linestyle=hline.style_dotted)
