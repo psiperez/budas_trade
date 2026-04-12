@@ -1,0 +1,774 @@
+//+------------------------------------------------------------------+
+//|                                          TripleConfirmation.mq5  |
+//|                                    by Expert Advisor Builder     |
+//|                                   TCBB com Multi-Timeframe (4H+D1)|
+//|                                   Versão 3.4 - Corrigido         |
+//+------------------------------------------------------------------+
+#property copyright   "Triple Confirmation System"
+#property description "TCBB Multi-Timeframe EA (4H+D1)"
+#property description "Gera sinais de compra/venda APENAS com confirmação TRIPLA (100%)"
+#property description "Condições adicionais: Fibo618 > BB Upper (COMPRA) | Fibo236 < BB Lower (VENDA)"
+#property description "VZO e WaveWeis calculados internamente (sem dependências externas)"
+#property description "⚠️ APENAS UMA OPERAÇÃO POR ATIVO PERMITIDA"
+#property version     "3.40"
+
+//+------------------------------------------------------------------+
+//| Parâmetros de entrada                                            |
+//+------------------------------------------------------------------+
+// Parâmetros de Gerenciamento de Capital
+input group "=== Money Management ==="
+input double   inpLotSize = 0.02;           // Quantidade de lotes
+input bool     inpUseAutoLot = false;       // Usar cálculo automático de lotes?
+input double   inpRiskPercent = 2.0;        // Risco por operação (%)
+input double   inpMaxLotSize = 1.0;         // Lote máximo permitido
+
+// Parâmetros de Stop Loss e Take Profit
+input group "=== Stop Loss & Take Profit ==="
+input int      inpStopLossPoints = 300;     // Stop Loss fixo em pontos
+input int      inpTakeProfitPoints = 600;   // Take Profit fixo em pontos
+
+// Parâmetros de Trailing Stop
+input group "=== Trailing Stop ==="
+input bool     inpUseTrailingStop = true;   // Ativar Trailing Stop
+input int      inpTrailingStart = 100;      // Iniciar trailing quando lucro atingir
+input int      inpTrailingStep = 50;        // Avançar trailing a cada
+input int      inpTrailingDistance = 50;    // Distância do trailing stop
+
+// Parâmetros do Sistema
+input group "=== Trading System ==="
+input int      inpMagicNumber = 12345;      // Magic Number
+input int      inpSlippage = 30;            // Slippage permitido
+input int      inpCooldownMinutes = 60;     // Cooldown entre sinais
+
+// Parâmetros ATR Trend Envelope
+input group "=== ATR Trend Envelope Settings ==="
+input int     inpAtrPeriod = 14;            // ATR period
+input double  inpDeviation = 1.5;           // ATR multiplication factor
+
+// Parâmetros VZO
+input group "=== Volume Zone Oscillator Settings ==="
+input int     inpVzoPeriod = 14;            // VZO Period
+input int     inpFlLookBack = 12;           // Floating levels look back
+input double  inpFlLevelUp = 50.0;          // Upper level %
+input double  inpFlLevelDown = 50.0;        // Lower level %
+
+// Parâmetros WaveWeis
+input group "=== WaveWeis Settings ==="
+input int     inpWaveIntensity = 50;        // Intensity window
+
+// Parâmetros Bollinger Bands
+input group "=== Bollinger Bands Settings ==="
+input int     inpBbPeriod = 20;             // Bollinger period
+input double  inpBbDeviation = 2.0;         // Bollinger deviation
+
+//+------------------------------------------------------------------+
+//| Buffers do indicador                                             |
+//+------------------------------------------------------------------+
+double lineupBuffer[];
+double linednBuffer[];
+double arrowupBuffer[];
+double arrowdnBuffer[];
+double fibo236Buffer[];
+double fibo382Buffer[];
+double fibo500Buffer[];
+double fibo618Buffer[];
+double fibo764Buffer[];
+double vzoBuffer[];
+double levupBuffer[];
+double levdnBuffer[];
+double accumBuffer[];
+double colorIndexBuffer[];
+double bbUpperBuffer[];
+double bbMiddleBuffer[];
+double bbLowerBuffer[];
+
+//+------------------------------------------------------------------+
+//| Variáveis globais                                                |
+//+------------------------------------------------------------------+
+ulong currentPositionTicket = 0;
+int currentPositionType = -1;
+datetime lastSignalTime = 0;
+datetime lastBarTime = 0;
+
+// Estado do WaveWeis
+double g_lastAccum = 0;
+int g_lastDirection = 0;
+double g_bestAccum = 0;
+
+// Arrays para dados históricos
+double g_high[];
+double g_low[];
+double g_close[];
+double g_volume[];
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+{
+   // Configurar buffers
+   SetIndexBuffer(0, lineupBuffer, INDICATOR_DATA);
+   SetIndexBuffer(1, linednBuffer, INDICATOR_DATA);
+   SetIndexBuffer(2, arrowupBuffer, INDICATOR_DATA);
+   SetIndexBuffer(3, arrowdnBuffer, INDICATOR_DATA);
+   SetIndexBuffer(4, fibo236Buffer, INDICATOR_DATA);
+   SetIndexBuffer(5, fibo382Buffer, INDICATOR_DATA);
+   SetIndexBuffer(6, fibo500Buffer, INDICATOR_DATA);
+   SetIndexBuffer(7, fibo618Buffer, INDICATOR_DATA);
+   SetIndexBuffer(8, fibo764Buffer, INDICATOR_DATA);
+   SetIndexBuffer(9, levupBuffer, INDICATOR_DATA);
+   SetIndexBuffer(10, levdnBuffer, INDICATOR_DATA);
+   SetIndexBuffer(11, vzoBuffer, INDICATOR_DATA);
+   SetIndexBuffer(12, accumBuffer, INDICATOR_DATA);
+   SetIndexBuffer(13, colorIndexBuffer, INDICATOR_COLOR_INDEX);
+   SetIndexBuffer(14, bbUpperBuffer, INDICATOR_DATA);
+   SetIndexBuffer(15, bbMiddleBuffer, INDICATOR_DATA);
+   SetIndexBuffer(16, bbLowerBuffer, INDICATOR_DATA);
+   
+   // Verificar posições existentes
+   ScanExistingPositions();
+   
+   Print("✅ EA TCBB_V3 inicializado com sucesso!");
+   Print("   Lote: ", inpLotSize);
+   Print("   Stop Loss: ", inpStopLossPoints, " pontos");
+   
+   return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+//| Verificar posições existentes                                    |
+//+------------------------------------------------------------------+
+void ScanExistingPositions()
+{
+   currentPositionTicket = 0;
+   currentPositionType = -1;
+   
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      
+      if(PositionGetString(POSITION_SYMBOL) == _Symbol &&
+         PositionGetInteger(POSITION_MAGIC) == inpMagicNumber)
+      {
+         currentPositionTicket = ticket;
+         currentPositionType = (int)PositionGetInteger(POSITION_TYPE);
+         Print("🔍 Posição existente encontrada: Ticket ", ticket);
+         break;
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Verificar se há posição aberta                                   |
+//+------------------------------------------------------------------+
+bool HasOpenPosition()
+{
+   if(currentPositionTicket != 0)
+   {
+      if(PositionSelectByTicket(currentPositionTicket))
+         return true;
+      else
+      {
+         currentPositionTicket = 0;
+         currentPositionType = -1;
+         return false;
+      }
+   }
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+{
+   Comment("");
+   Print("✅ EA TCBB_V3 finalizado");
+}
+
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+{
+   // Verificar nova barra
+   datetime currentBarTime = iTime(_Symbol, PERIOD_CURRENT, 0);
+   if(currentBarTime == lastBarTime) return;
+   lastBarTime = currentBarTime;
+   
+   // Obter dados históricos
+   if(!GetHistoricalData())
+      return;
+   
+   // Atualizar indicadores
+   CalculateIndicators();
+   
+   // Gerenciar trailing stop
+   if(inpUseTrailingStop && HasOpenPosition())
+      ManageTrailingStop();
+   
+   // Verificar sinais
+   if(!HasOpenPosition())
+      CheckAndExecuteSignals();
+   
+   UpdateChartInfo();
+}
+
+//+------------------------------------------------------------------+
+//| Obter dados históricos                                           |
+//+------------------------------------------------------------------+
+bool GetHistoricalData()
+{
+   int bars = Bars(_Symbol, PERIOD_CURRENT);
+   if(bars < 100) return false;
+   
+   // Redimensionar arrays
+   ArrayResize(g_high, bars);
+   ArrayResize(g_low, bars);
+   ArrayResize(g_close, bars);
+   ArrayResize(g_volume, bars);
+   
+   // Copiar dados
+   if(CopyHigh(_Symbol, PERIOD_CURRENT, 0, bars, g_high) < bars) return false;
+   if(CopyLow(_Symbol, PERIOD_CURRENT, 0, bars, g_low) < bars) return false;
+   if(CopyClose(_Symbol, PERIOD_CURRENT, 0, bars, g_close) < bars) return false;
+   
+   // Copiar volume
+   for(int i=0; i<bars; i++)
+   {
+      g_volume[i] = (double)iVolume(_Symbol, PERIOD_CURRENT, i);
+   }
+   
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Calcular todos os indicadores                                    |
+//+------------------------------------------------------------------+
+void CalculateIndicators()
+{
+   int bars = ArraySize(g_close);
+   if(bars < 100) return;
+   
+   // Arrays para valores intermediários
+   double atrValues[];
+   ArrayResize(atrValues, bars);
+   
+   // Calcular ATR
+   for(int i=1; i<bars; i++)
+   {
+      double tr = MathMax(g_high[i], g_close[i-1]) - MathMin(g_low[i], g_close[i-1]);
+      if(i == 1)
+         atrValues[i] = tr;
+      else
+         atrValues[i] = (atrValues[i-1] * (inpAtrPeriod-1) + tr) / inpAtrPeriod;
+   }
+   
+   // Calcular ATR Trend Envelope e Fibonacci
+   double prevSmin = 0, prevSmax = 0;
+   int prevTrend = 0;
+   
+   for(int i=0; i<bars; i++)
+   {
+      double envelope = atrValues[i] * inpDeviation;
+      double currentSmax = g_high[i] + envelope;
+      double currentSmin = g_low[i] - envelope;
+      
+      int trend = 0;
+      if(i == 0)
+         trend = 0;
+      else
+      {
+         if(g_close[i] > prevSmax)
+            trend = 1;
+         else if(g_close[i] < prevSmin)
+            trend = -1;
+         else
+            trend = prevTrend;
+      }
+      
+      bool trendChange = (i>0 && trend != prevTrend);
+      
+      if(trend > 0)
+      {
+         lineupBuffer[i] = currentSmin;
+         linednBuffer[i] = EMPTY_VALUE;
+         arrowupBuffer[i] = trendChange ? lineupBuffer[i] : EMPTY_VALUE;
+         arrowdnBuffer[i] = EMPTY_VALUE;
+         prevSmin = currentSmin;
+         prevSmax = currentSmax;
+      }
+      else if(trend < 0)
+      {
+         lineupBuffer[i] = EMPTY_VALUE;
+         linednBuffer[i] = currentSmax;
+         arrowupBuffer[i] = EMPTY_VALUE;
+         arrowdnBuffer[i] = trendChange ? linednBuffer[i] : EMPTY_VALUE;
+         prevSmin = currentSmin;
+         prevSmax = currentSmax;
+      }
+      else
+      {
+         lineupBuffer[i] = EMPTY_VALUE;
+         linednBuffer[i] = EMPTY_VALUE;
+         arrowupBuffer[i] = EMPTY_VALUE;
+         arrowdnBuffer[i] = EMPTY_VALUE;
+      }
+      
+      // Fibonacci levels
+      double rangeVal = currentSmax - currentSmin;
+      if(rangeVal > 0)
+      {
+         fibo236Buffer[i] = currentSmax - 0.236 * rangeVal;
+         fibo382Buffer[i] = currentSmax - 0.382 * rangeVal;
+         fibo500Buffer[i] = currentSmax - 0.500 * rangeVal;
+         fibo618Buffer[i] = currentSmax - 0.618 * rangeVal;
+         fibo764Buffer[i] = currentSmax - 0.764 * rangeVal;
+      }
+      else
+      {
+         fibo236Buffer[i] = EMPTY_VALUE;
+         fibo382Buffer[i] = EMPTY_VALUE;
+         fibo500Buffer[i] = EMPTY_VALUE;
+         fibo618Buffer[i] = EMPTY_VALUE;
+         fibo764Buffer[i] = EMPTY_VALUE;
+      }
+      
+      prevTrend = trend;
+   }
+   
+   // Calcular VZO
+   double alpha = 2.0 / (inpVzoPeriod + 1);
+   double vp = 0, tv = 0;
+   
+   for(int i=0; i<bars; i++)
+   {
+      int direction = (i>0) ? (g_close[i] > g_close[i-1] ? 1 : g_close[i] < g_close[i-1] ? -1 : 0) : 0;
+      double R = direction * g_volume[i];
+      
+      if(i == 0)
+      {
+         vp = R;
+         tv = g_volume[i];
+      }
+      else
+      {
+         vp = vp + alpha * (R - vp);
+         tv = tv + alpha * (g_volume[i] - tv);
+      }
+      
+      vzoBuffer[i] = (tv != 0) ? 100.0 * vp / tv : 0;
+      
+      int lookStart = MathMax(i - inpFlLookBack, 0);
+      
+      // Encontrar mínimo e máximo
+      double minVzo = vzoBuffer[lookStart];
+      double maxVzo = vzoBuffer[lookStart];
+      for(int j=lookStart+1; j<=i; j++)
+      {
+         if(vzoBuffer[j] < minVzo) minVzo = vzoBuffer[j];
+         if(vzoBuffer[j] > maxVzo) maxVzo = vzoBuffer[j];
+      }
+      
+      double rangeVzo = maxVzo - minVzo;
+      
+      levupBuffer[i] = minVzo + inpFlLevelUp * rangeVzo / 100.0;
+      levdnBuffer[i] = minVzo + inpFlLevelDown * rangeVzo / 100.0;
+   }
+   
+   // Calcular WaveWeis
+   for(int i=0; i<bars; i++)
+   {
+      double vol = g_volume[i];
+      
+      if(i == 0)
+      {
+         accumBuffer[i] = vol;
+         colorIndexBuffer[i] = 0;
+         g_lastAccum = vol;
+         g_lastDirection = 0;
+         continue;
+      }
+      
+      bool contUp = (g_close[i] >= g_close[i-1]);
+      bool prevUp = (g_close[i-1] >= g_close[MathMax(i-2,0)]);
+      
+      if(contUp)
+      {
+         if(prevUp)
+         {
+            g_lastAccum += vol;
+            g_lastDirection = 1;
+         }
+         else
+         {
+            if(g_lastAccum > g_bestAccum)
+               g_bestAccum = g_lastAccum;
+            g_lastAccum = vol;
+            g_lastDirection = 1;
+         }
+      }
+      else
+      {
+         if(!prevUp)
+         {
+            g_lastAccum += vol;
+            g_lastDirection = -1;
+         }
+         else
+         {
+            if(g_lastAccum > g_bestAccum)
+               g_bestAccum = g_lastAccum;
+            g_lastAccum = vol;
+            g_lastDirection = -1;
+         }
+      }
+      
+      accumBuffer[i] = g_lastAccum;
+      
+      // Intensidade
+      int lookback = inpWaveIntensity;
+      int startIdx = MathMax(i - lookback, 0);
+      double refMax = 0;
+      for(int j=startIdx; j<=i; j++)
+         if(accumBuffer[j] > refMax) refMax = accumBuffer[j];
+      
+      double intensity = (refMax > 0) ? g_lastAccum / refMax : 0;
+      int intensityLevel = (int)MathCeil(intensity * 4);
+      intensityLevel = MathMin(4, MathMax(1, intensityLevel));
+      
+      if(g_lastDirection == 1)
+         colorIndexBuffer[i] = intensityLevel;
+      else if(g_lastDirection == -1)
+         colorIndexBuffer[i] = 4 + intensityLevel;
+      else
+         colorIndexBuffer[i] = 0;
+   }
+   
+   // Calcular Bollinger Bands
+   for(int i=0; i<bars; i++)
+   {
+      if(i < inpBbPeriod-1)
+      {
+         bbUpperBuffer[i] = EMPTY_VALUE;
+         bbMiddleBuffer[i] = EMPTY_VALUE;
+         bbLowerBuffer[i] = EMPTY_VALUE;
+         continue;
+      }
+      
+      double sum = 0;
+      for(int j=0; j<inpBbPeriod; j++)
+         sum += g_close[i-j];
+      bbMiddleBuffer[i] = sum / inpBbPeriod;
+      
+      double sumSq = 0;
+      for(int j=0; j<inpBbPeriod; j++)
+      {
+         double diff = g_close[i-j] - bbMiddleBuffer[i];
+         sumSq += diff * diff;
+      }
+      double stdDev = MathSqrt(sumSq / inpBbPeriod);
+      
+      bbUpperBuffer[i] = bbMiddleBuffer[i] + (inpBbDeviation * stdDev);
+      bbLowerBuffer[i] = bbMiddleBuffer[i] - (inpBbDeviation * stdDev);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Verificar sinal de COMPRA                                        |
+//+------------------------------------------------------------------+
+bool CheckBuySignal()
+{
+   int idx = 1;
+   if(idx >= ArraySize(arrowupBuffer)) return false;
+   
+   // ATR Trend
+   bool atrBuy = (arrowupBuffer[idx] != EMPTY_VALUE);
+   
+   // VZO - oversold
+   bool vzoBullish = (vzoBuffer[idx] < levdnBuffer[idx]);
+   
+   // WaveWeis - bullish
+   bool waveBullish = (colorIndexBuffer[idx] >= 1 && colorIndexBuffer[idx] <= 4);
+   
+   // Fibonacci cruzando Bollinger
+   bool fiboCross = (fibo618Buffer[idx] > bbUpperBuffer[idx]);
+   
+   bool allConditions = (atrBuy && vzoBullish && waveBullish && fiboCross);
+   
+   if(allConditions)
+   {
+      Print("🔔 SINAL DE COMPRA DETECTADO!");
+   }
+   
+   return allConditions;
+}
+
+//+------------------------------------------------------------------+
+//| Verificar sinal de VENDA                                         |
+//+------------------------------------------------------------------+
+bool CheckSellSignal()
+{
+   int idx = 1;
+   if(idx >= ArraySize(arrowdnBuffer)) return false;
+   
+   // ATR Trend
+   bool atrSell = (arrowdnBuffer[idx] != EMPTY_VALUE);
+   
+   // VZO - overbought
+   bool vzoBearish = (vzoBuffer[idx] > levupBuffer[idx]);
+   
+   // WaveWeis - bearish
+   bool waveBearish = (colorIndexBuffer[idx] >= 5 && colorIndexBuffer[idx] <= 8);
+   
+   // Fibonacci cruzando Bollinger
+   bool fiboCross = (fibo236Buffer[idx] < bbLowerBuffer[idx]);
+   
+   bool allConditions = (atrSell && vzoBearish && waveBearish && fiboCross);
+   
+   if(allConditions)
+   {
+      Print("🔔 SINAL DE VENDA DETECTADO!");
+   }
+   
+   return allConditions;
+}
+
+//+------------------------------------------------------------------+
+//| Calcular lote automático                                         |
+//+------------------------------------------------------------------+
+double CalculateLotSize(double stopLossPoints)
+{
+   if(!inpUseAutoLot)
+      return inpLotSize;
+   
+   double accountBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+   double riskAmount = accountBalance * (inpRiskPercent / 100.0);
+   double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+   double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   
+   double calculatedLot = riskAmount / (stopLossPoints * tickValue);
+   calculatedLot = MathMax(minLot, MathMin(calculatedLot, maxLot));
+   calculatedLot = MathMin(calculatedLot, inpMaxLotSize);
+   
+   return calculatedLot;
+}
+
+//+------------------------------------------------------------------+
+//| Verificar e executar sinais                                      |
+//+------------------------------------------------------------------+
+void CheckAndExecuteSignals()
+{
+   if(TimeCurrent() - lastSignalTime < inpCooldownMinutes * 60)
+      return;
+   
+   if(CheckBuySignal())
+   {
+      ExecuteBuyOrder();
+   }
+   else if(CheckSellSignal())
+   {
+      ExecuteSellOrder();
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Executar ordem de COMPRA                                         |
+//+------------------------------------------------------------------+
+void ExecuteBuyOrder()
+{
+   if(HasOpenPosition())
+   {
+      Print("❌ Já existe uma posição aberta");
+      return;
+   }
+   
+   MqlTick currentTick;
+   if(!SymbolInfoTick(_Symbol, currentTick)) return;
+   
+   double entryPrice = currentTick.ask;
+   double stopLoss = entryPrice - (inpStopLossPoints * _Point);
+   double takeProfit = entryPrice + (inpTakeProfitPoints * _Point);
+   double lotSize = CalculateLotSize(inpStopLossPoints);
+   
+   MqlTradeRequest request = {};
+   MqlTradeResult result = {};
+   
+   request.action = TRADE_ACTION_DEAL;
+   request.symbol = _Symbol;
+   request.volume = lotSize;
+   request.type = ORDER_TYPE_BUY;
+   request.price = entryPrice;
+   request.sl = stopLoss;
+   request.tp = takeProfit;
+   request.deviation = inpSlippage;
+   request.magic = inpMagicNumber;
+   request.comment = "TCBB_V3 Buy";
+   
+   if(OrderSend(request, result))
+   {
+      if(result.retcode == TRADE_RETCODE_DONE)
+      {
+         currentPositionTicket = result.order;
+         currentPositionType = POSITION_TYPE_BUY;
+         lastSignalTime = TimeCurrent();
+         Print("✅ ORDEM DE COMPRA executada! Ticket: ", result.order);
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Executar ordem de VENDA                                          |
+//+------------------------------------------------------------------+
+void ExecuteSellOrder()
+{
+   if(HasOpenPosition())
+   {
+      Print("❌ Já existe uma posição aberta");
+      return;
+   }
+   
+   MqlTick currentTick;
+   if(!SymbolInfoTick(_Symbol, currentTick)) return;
+   
+   double entryPrice = currentTick.bid;
+   double stopLoss = entryPrice + (inpStopLossPoints * _Point);
+   double takeProfit = entryPrice - (inpTakeProfitPoints * _Point);
+   double lotSize = CalculateLotSize(inpStopLossPoints);
+   
+   MqlTradeRequest request = {};
+   MqlTradeResult result = {};
+   
+   request.action = TRADE_ACTION_DEAL;
+   request.symbol = _Symbol;
+   request.volume = lotSize;
+   request.type = ORDER_TYPE_SELL;
+   request.price = entryPrice;
+   request.sl = stopLoss;
+   request.tp = takeProfit;
+   request.deviation = inpSlippage;
+   request.magic = inpMagicNumber;
+   request.comment = "TCBB_V3 Sell";
+   
+   if(OrderSend(request, result))
+   {
+      if(result.retcode == TRADE_RETCODE_DONE)
+      {
+         currentPositionTicket = result.order;
+         currentPositionType = POSITION_TYPE_SELL;
+         lastSignalTime = TimeCurrent();
+         Print("✅ ORDEM DE VENDA executada! Ticket: ", result.order);
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Gerenciar Trailing Stop                                          |
+//+------------------------------------------------------------------+
+void ManageTrailingStop()
+{
+   if(!HasOpenPosition()) return;
+   if(!PositionSelectByTicket(currentPositionTicket)) return;
+   
+   double currentSL = PositionGetDouble(POSITION_SL);
+   double currentTP = PositionGetDouble(POSITION_TP);
+   double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+   double currentPrice = (currentPositionType == POSITION_TYPE_BUY) ? 
+                         SymbolInfoDouble(_Symbol, SYMBOL_BID) : 
+                         SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   
+   double profitPoints = 0;
+   double newSL = 0;
+   
+   if(currentPositionType == POSITION_TYPE_BUY)
+   {
+      profitPoints = (currentPrice - openPrice) / _Point;
+      if(profitPoints >= inpTrailingStart)
+      {
+         int trailingLevels = (int)((profitPoints - inpTrailingStart) / inpTrailingStep);
+         double trailDistance = inpTrailingStart + (trailingLevels * inpTrailingStep) + inpTrailingDistance;
+         newSL = openPrice + (trailDistance * _Point);
+         
+         if(newSL > currentSL && newSL < currentPrice)
+         {
+            ModifyStopLoss(currentPositionTicket, newSL, currentTP);
+         }
+      }
+   }
+   else
+   {
+      profitPoints = (openPrice - currentPrice) / _Point;
+      if(profitPoints >= inpTrailingStart)
+      {
+         int trailingLevels = (int)((profitPoints - inpTrailingStart) / inpTrailingStep);
+         double trailDistance = inpTrailingStart + (trailingLevels * inpTrailingStep) + inpTrailingDistance;
+         newSL = openPrice - (trailDistance * _Point);
+         
+         if((newSL < currentSL || currentSL == 0) && newSL > currentPrice)
+         {
+            ModifyStopLoss(currentPositionTicket, newSL, currentTP);
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Modificar Stop Loss                                              |
+//+------------------------------------------------------------------+
+bool ModifyStopLoss(ulong ticket, double newSL, double currentTP)
+{
+   MqlTradeRequest request = {};
+   MqlTradeResult result = {};
+   
+   request.action = TRADE_ACTION_SLTP;
+   request.order = ticket;
+   request.sl = newSL;
+   request.tp = currentTP;
+   request.symbol = _Symbol;
+   request.magic = inpMagicNumber;
+   
+   if(OrderSend(request, result))
+   {
+      if(result.retcode == TRADE_RETCODE_DONE)
+      {
+         Print("📊 Trailing Stop atualizado para: ", newSL);
+         return true;
+      }
+   }
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Atualizar informações no gráfico                                 |
+//+------------------------------------------------------------------+
+void UpdateChartInfo()
+{
+   string info = "";
+   info += "═══════════════════════════════════\n";
+   info += "       TCBB_V3 EA (Sem Dependências)\n";
+   info += "═══════════════════════════════════\n";
+   info += "Lote: " + DoubleToString(inpLotSize, 2) + "\n";
+   info += "Stop Loss: " + IntegerToString(inpStopLossPoints) + " pts\n";
+   info += "Trailing: " + (inpUseTrailingStop ? "ATIVO" : "INATIVO") + "\n";
+   info += "───────────────────────────────────\n";
+   
+   if(HasOpenPosition())
+   {
+      string posType = (currentPositionType == POSITION_TYPE_BUY) ? "COMPRA" : "VENDA";
+      info += "📊 POSIÇÃO ABERTA: " + posType + "\n";
+      if(PositionSelectByTicket(currentPositionTicket))
+      {
+         info += "   Lucro: " + DoubleToString(PositionGetDouble(POSITION_PROFIT), 2) + "\n";
+      }
+   }
+   else
+   {
+      info += "⏳ AGUARDANDO SINAL\n";
+   }
+   
+   info += "═══════════════════════════════════";
+   Comment(info);
+}
+//+------------------------------------------------------------------+
