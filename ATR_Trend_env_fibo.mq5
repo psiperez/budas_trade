@@ -30,27 +30,27 @@
 // Fibonacci Levels
 #property indicator_label5  "Fibo 23.6%"
 #property indicator_type5   DRAW_LINE
-#property indicator_color5  clrSilver
-#property indicator_style5  STYLE_DOT
+#property indicator_color5  clrYellow
+#property indicator_style5  STYLE_SOLID
 
 #property indicator_label6  "Fibo 38.2%"
-#property indicator_type6   DRAW_LINE
-#property indicator_color6  clrSilver
+#property indicator_type6   DRAW_NONE
+#property indicator_color6  clrBlack
 #property indicator_style6  STYLE_DOT
 
 #property indicator_label7  "Fibo 50.0%"
-#property indicator_type7   DRAW_LINE
-#property indicator_color7  clrGray
-#property indicator_style7  STYLE_DOT
+#property indicator_type7   DRAW_NONE
+#property indicator_color7  clrBlack
+#property indicator_style7  STYLE_SOLID
 
 #property indicator_label8  "Fibo 61.8%"
 #property indicator_type8   DRAW_LINE
-#property indicator_color8  clrSilver
-#property indicator_style8  STYLE_DOT
+#property indicator_color8  clrYellow
+#property indicator_style8  STYLE_SOLID
 
 #property indicator_label9  "Fibo 76.4%"
-#property indicator_type9   DRAW_LINE
-#property indicator_color9  clrSilver
+#property indicator_type9   DRAW_NONE
+#property indicator_color9  clrBlack
 #property indicator_style9  STYLE_DOT
 
 //
